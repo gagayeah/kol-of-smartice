@@ -334,9 +334,6 @@ export default function ProjectManagerPlanA({ projects, currentProject, currentG
           type="card"
           size="small"
           tabBarGutter={4}
-          tabBarExtraContent={{
-            right: <Button type="text" icon={<PlusOutlined />} size="small" onClick={() => openCreateModal()}>新建</Button>
-          }}
         />
       </div>
 
@@ -351,9 +348,6 @@ export default function ProjectManagerPlanA({ projects, currentProject, currentG
             type="card"
             size="small"
             tabBarGutter={4}
-            tabBarExtraContent={{
-              right: <Button type="text" icon={<PlusOutlined />} size="small" onClick={() => openCreateModal(selectedLevel1)}>添加</Button>
-            }}
           />
         </div>
       )}
@@ -369,9 +363,6 @@ export default function ProjectManagerPlanA({ projects, currentProject, currentG
             type="card"
             size="small"
             tabBarGutter={4}
-            tabBarExtraContent={{
-              right: <Button type="text" icon={<PlusOutlined />} size="small" onClick={() => openCreateModal(selectedLevel2)}>添加</Button>
-            }}
           />
         </div>
       )}
