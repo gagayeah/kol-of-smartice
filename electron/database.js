@@ -69,6 +69,10 @@ export function initDatabase() {
   // 创建数据库连接
   db = new Database(dbPath);
 
+  // 启用外键约束（重要！防止数据关联错误）
+  db.pragma('foreign_keys = ON');
+  console.log('✅ 外键约束已启用');
+
   // 设置每小时自动备份
   setInterval(() => {
     backupDatabase();
@@ -284,6 +288,48 @@ export function initDatabase() {
   `);
 
   console.log('数据库初始化完成:', dbPath);
+
+  // 数据完整性检查和修复
+  try {
+    console.log('🔍 开始数据完整性检查...');
+
+    // 检查是否有孤立的记录（没有对应的项目集或项目）
+    const orphanedProjects = db.prepare(`
+      SELECT p.id, p.name, p.group_id
+      FROM projects p
+      LEFT JOIN project_groups g ON p.group_id = g.id
+      WHERE g.id IS NULL
+    `).all();
+
+    if (orphanedProjects.length > 0) {
+      console.warn('⚠️ 发现孤立项目:', orphanedProjects);
+      // 将孤立项目移到默认项目集
+      const defaultGroup = db.prepare('SELECT id FROM project_groups LIMIT 1').get();
+      if (defaultGroup) {
+        const updateStmt = db.prepare('UPDATE projects SET group_id = ? WHERE group_id IS NULL OR group_id NOT IN (SELECT id FROM project_groups)');
+        updateStmt.run(defaultGroup.id);
+        console.log('✅ 已修复孤立项目的归属');
+      }
+    }
+
+    const orphanedBloggers = db.prepare(`
+      SELECT b.id, b.nickname, b.project_id
+      FROM bloggers b
+      LEFT JOIN projects p ON b.project_id = p.id
+      WHERE p.id IS NULL
+    `).all();
+
+    if (orphanedBloggers.length > 0) {
+      console.warn('⚠️ 发现孤立博主:', orphanedBloggers);
+      // 删除孤立博主记录
+      db.prepare('DELETE FROM bloggers WHERE project_id NOT IN (SELECT id FROM projects)').run();
+      console.log('✅ 已清理孤立博主记录');
+    }
+
+    console.log('✅ 数据完整性检查完成');
+  } catch (error) {
+    console.error('❌ 数据完整性检查失败:', error);
+  }
 }
 
 // 查询方法

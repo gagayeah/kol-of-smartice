@@ -56,7 +56,7 @@ function App() {
     // 加载当前项目集的项目
     if (currentGrp) {
       const groupProjects = await projectDB.getByGroup(currentGrp.id);
-      const current = await projectDB.getCurrent();
+      const current = await projectDB.getCurrent(currentGrp.id);
 
       setProjects(groupProjects);
 

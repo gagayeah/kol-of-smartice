@@ -137,6 +137,8 @@ export const projectGroupDB = {
       if (currentId === groupId) {
         const groups = await this.getAll();
         localStorage.setItem('currentGroupId', groups[0]?.id || '');
+        // 重要：清理currentProjectId，因为原项目已删除
+        localStorage.setItem('currentProjectId', '');
       }
       return;
     }
@@ -256,17 +258,25 @@ export const projectDB = {
     return newProject;
   },
 
-  // 获取当前项目
-  async getCurrent() {
-    const projects = await this.getAll();
-
+  // 获取当前项目（必须是当前项目集的项目）
+  async getCurrent(currentGroupId = null) {
     if (isElectron()) {
       const currentId = localStorage.getItem('currentProjectId');
-      return projects.find(p => p.id === currentId) || projects[0];
+      const currentGroupId = currentGroupId || localStorage.getItem('currentGroupId');
+
+      if (!currentGroupId) return null;
+
+      // 获取当前项目集的所有项目
+      const groupProjects = await this.getByGroup(currentGroupId);
+      // 只在当前项目集中查找
+      return groupProjects.find(p => p.id === currentId) || groupProjects[0] || null;
     }
 
     const db = getLocalDB();
-    return projects.find(p => p.id === db.currentProjectId);
+    if (!db.currentGroupId) return null;
+
+    const groupProjects = db.projects?.filter(p => p.groupId === db.currentGroupId) || [];
+    return groupProjects.find(p => p.id === db.currentProjectId) || groupProjects[0] || null;
   },
 
   // 切换项目
@@ -347,8 +357,14 @@ export const projectDB = {
 
       const currentId = localStorage.getItem('currentProjectId');
       if (allProjectIds.includes(currentId)) {
-        const projects = await this.getAll();
-        localStorage.setItem('currentProjectId', projects[0]?.id || '');
+        // 获取当前项目集的项目，而不是所有项目
+        const currentGroupId = localStorage.getItem('currentGroupId');
+        if (currentGroupId) {
+          const groupProjects = await this.getByGroup(currentGroupId);
+          localStorage.setItem('currentProjectId', groupProjects[0]?.id || '');
+        } else {
+          localStorage.setItem('currentProjectId', '');
+        }
       }
       return;
     }
