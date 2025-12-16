@@ -19,10 +19,13 @@ export default function ProjectGroupSelector({ groups, currentGroup, onGroupChan
       return;
     }
 
-    await projectGroupDB.create(newGroupName);
+    const newGroup = await projectGroupDB.create(newGroupName);
     message.success('项目集创建成功！');
     setNewGroupName('');
     setIsModalOpen(false);
+
+    // 确保切换到新创建的项目集
+    await projectGroupDB.switch(newGroup.id);
     onGroupChange();
   };
 

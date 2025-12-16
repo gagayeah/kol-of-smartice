@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Supabase 连接测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin: 20px 0;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .success {
+            color: #28a745;
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+        }
+        .error {
+            color: #dc3545;
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+        }
+        .info {
+            color: #17a2b8;
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        pre {
+            background-color: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            overflow-x: auto;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Supabase 连接功能测试</h1>
+
+        <div class="test-section">
+            <h2>1. 连接测试</h2>
+            <button onclick="testConnection()">测试连接</button>
+            <div id="connection-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>2. 数据插入测试</h2>
+            <button onclick="testInsert()">插入测试数据</button>
+            <div id="insert-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>3. 数据查询测试</h2>
+            <button onclick="testQuery()">查询项目集</button>
+            <button onclick="testQueryProjects()">查询项目</button>
+            <button onclick="testQueryBloggers()">查询博主</button>
+            <div id="query-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>4. 更新测试</h2>
+            <button onclick="testUpdate()">更新博主状态</button>
+            <div id="update-result" class="result"></div>
+        </div>
+
+        <div class="test-section">
+            <h2>5. 删除测试</h2>
+            <button onclick="testDelete()">删除测试数据</button>
+            <div id="delete-result" class="result"></div>
+        </div>
+    </div>
+
+    <script type="module">
+        // 导入 Supabase 客户端配置
+        import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/esm/index.js';
+
+        // Supabase 配置
+        const SUPABASE_URL = 'https://wdpeoyugsxqnpwwtkqsl.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkcGVveXVnc3hxbnB3d3RrcXNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQxNDgwNzgsImV4cCI6MjA1OTcyNDA3OH0.9bUpuZCOZxDSH3KsIu6FwWZyAvnV5xPJGNpO3luxWOE';
+
+        // 创建 Supabase 客户端
+        const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        // 测试数据
+        let testProjectGroupId = null;
+        let testProjectId = null;
+        let testBloggerId = null;
+
+        // 测试连接
+        window.testConnection = async function() {
+            const resultDiv = document.getElementById('connection-result');
+            resultDiv.innerHTML = '<div class="info">正在测试连接...</div>';
+
+            try {
+                // 简单的健康检查
+                const { data, error } = await supabase
+                    .from('kol_project_groups')
+                    .select('count')
+                    .limit(1);
+
+                if (error) {
+                    throw error;
+                }
+
+                resultDiv.innerHTML = '<div class="success">✅ 连接成功！Supabase 数据库可正常访问。</div>';
+                console.log('连接测试成功:', data);
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 连接失败: ${error.message}</div>`;
+                console.error('连接测试失败:', error);
+            }
+        };
+
+        // 测试插入
+        window.testInsert = async function() {
+            const resultDiv = document.getElementById('insert-result');
+            resultDiv.innerHTML = '<div class="info">正在插入测试数据...</div>';
+
+            try {
+                // 插入项目集
+                const { data: groupData, error: groupError } = await supabase
+                    .from('kol_project_groups')
+                    .insert({
+                        name: '测试项目集 ' + Date.now(),
+                        brand_id: 1,
+                        description: '这是一个测试项目集',
+                        is_active: true
+                    })
+                    .select();
+
+                if (groupError) throw groupError;
+                testProjectGroupId = groupData[0].id;
+
+                // 插入项目
+                const { data: projectData, error: projectError } = await supabase
+                    .from('kol_projects')
+                    .insert({
+                        group_id: testProjectGroupId,
+                        name: '测试项目 ' + Date.now(),
+                        project_type: 'marketing',
+                        status: 'active'
+                    })
+                    .select();
+
+                if (projectError) throw projectError;
+                testProjectId = projectData[0].id;
+
+                // 插入博主
+                const { data: bloggerData, error: bloggerError } = await supabase
+                    .from('kol_bloggers')
+                    .insert({
+                        project_id: testProjectId,
+                        nickname: '测试博主 ' + Math.random().toString(36).substr(2, 9),
+                        followers: Math.floor(Math.random() * 100000),
+                        profile_url: 'https://example.com/test',
+                        status: '待审核',
+                        notes: '这是一个测试博主'
+                    })
+                    .select();
+
+                if (bloggerError) throw bloggerError;
+                testBloggerId = bloggerData[0].id;
+
+                resultDiv.innerHTML = `
+                    <div class="success">✅ 数据插入成功！</div>
+                    <pre>插入的数据：
+- 项目集ID: ${testProjectGroupId}
+- 项目ID: ${testProjectId}
+- 博主ID: ${testBloggerId}</pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 插入失败: ${error.message}</div>`;
+                console.error('插入测试失败:', error);
+            }
+        };
+
+        // 测试查询项目集
+        window.testQuery = async function() {
+            const resultDiv = document.getElementById('query-result');
+            resultDiv.innerHTML = '<div class="info">正在查询项目集...</div>';
+
+            try {
+                const { data, error } = await supabase
+                    .from('kol_project_groups')
+                    .select('*')
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                resultDiv.innerHTML = `
+                    <div class="success">✅ 查询成功！找到 ${data.length} 个项目集</div>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 查询失败: ${error.message}</div>`;
+                console.error('查询失败:', error);
+            }
+        };
+
+        // 测试查询项目
+        window.testQueryProjects = async function() {
+            const resultDiv = document.getElementById('query-result');
+            resultDiv.innerHTML = '<div class="info">正在查询项目...</div>';
+
+            try {
+                const { data, error } = await supabase
+                    .from('kol_projects')
+                    .select(`
+                        *,
+                        kol_project_groups(name)
+                    `)
+                    .order('created_at', { ascending: false });
+
+                if (error) throw error;
+
+                resultDiv.innerHTML = `
+                    <div class="success">✅ 查询成功！找到 ${data.length} 个项目</div>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 查询失败: ${error.message}</div>`;
+                console.error('查询失败:', error);
+            }
+        };
+
+        // 测试查询博主
+        window.testQueryBloggers = async function() {
+            const resultDiv = document.getElementById('query-result');
+            resultDiv.innerHTML = '<div class="info">正在查询博主...</div>';
+
+            try {
+                const { data, error } = await supabase
+                    .from('kol_bloggers')
+                    .select(`
+                        *,
+                        kol_projects(name)
+                    `)
+                    .order('created_at', { ascending: false })
+                    .limit(10);
+
+                if (error) throw error;
+
+                resultDiv.innerHTML = `
+                    <div class="success">✅ 查询成功！找到 ${data.length} 个博主（前10个）</div>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 查询失败: ${error.message}</div>`;
+                console.error('查询失败:', error);
+            }
+        };
+
+        // 测试更新
+        window.testUpdate = async function() {
+            const resultDiv = document.getElementById('update-result');
+
+            if (!testBloggerId) {
+                resultDiv.innerHTML = '<div class="info">请先运行插入测试</div>';
+                return;
+            }
+
+            resultDiv.innerHTML = '<div class="info">正在更新博主状态...</div>';
+
+            try {
+                const { data, error } = await supabase
+                    .from('kol_bloggers')
+                    .update({
+                        status: '已联系',
+                        notes: '状态已更新: ' + new Date().toLocaleString()
+                    })
+                    .eq('id', testBloggerId)
+                    .select();
+
+                if (error) throw error;
+
+                resultDiv.innerHTML = `
+                    <div class="success">✅ 更新成功！</div>
+                    <pre>更新结果:
+${JSON.stringify(data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 更新失败: ${error.message}</div>`;
+                console.error('更新失败:', error);
+            }
+        };
+
+        // 测试删除
+        window.testDelete = async function() {
+            const resultDiv = document.getElementById('delete-result');
+
+            if (!testBloggerId) {
+                resultDiv.innerHTML = '<div class="info">请先运行插入测试</div>';
+                return;
+            }
+
+            resultDiv.innerHTML = '<div class="info">正在删除测试数据...</div>';
+
+            try {
+                // 删除博主
+                const { error: bloggerError } = await supabase
+                    .from('kol_bloggers')
+                    .delete()
+                    .eq('id', testBloggerId);
+
+                if (bloggerError) throw bloggerError;
+
+                // 删除项目
+                if (testProjectId) {
+                    const { error: projectError } = await supabase
+                        .from('kol_projects')
+                        .delete()
+                        .eq('id', testProjectId);
+
+                    if (projectError) throw projectError;
+                }
+
+                // 删除项目集
+                if (testProjectGroupId) {
+                    const { error: groupError } = await supabase
+                        .from('kol_project_groups')
+                        .delete()
+                        .eq('id', testProjectGroupId);
+
+                    if (groupError) throw groupError;
+                }
+
+                resultDiv.innerHTML = `
+                    <div class="success">✅ 删除成功！测试数据已清理</div>
+                    <pre>已删除:
+- 博主ID: ${testBloggerId}
+- 项目ID: ${testProjectId}
+- 项目集ID: ${testProjectGroupId}</pre>
+                `;
+
+                // 重置测试ID
+                testProjectGroupId = null;
+                testProjectId = null;
+                testBloggerId = null;
+
+            } catch (error) {
+                resultDiv.innerHTML = `<div class="error">❌ 删除失败: ${error.message}</div>`;
+                console.error('删除失败:', error);
+            }
+        };
+
+        // 页面加载时自动测试连接
+        window.addEventListener('load', () => {
+            console.log('页面加载完成，可以开始测试');
+        });
+    </script>
+</body>
+</html>

@@ -1,11 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
+// 使用统一的 Supabase 客户端配置
+import { supabase, withErrorHandling, cacheManager, generateCacheKey } from './supabase-client.js';
 
-// Supabase 配置
-const SUPABASE_URL = 'https://ewspjkpkkrgsrpzgdoex.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3c3Bqa3Bra3Jnc3Jwemdkb2V4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1MDc3NzksImV4cCI6MjA3NTA4Mzc3OX0.TBS2mwYwOGhwXzZ1dXiBQk0jzMSxsqkGl7uheogevUE';
-
-// 创建 Supabase 客户端
-export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+// 重新导出 supabase 客户端（保持向后兼容）
+export { supabase };
 
 /**
  * 分享项目到云端
@@ -55,7 +52,7 @@ export async function shareProject(projectData, options = {}) {
       return { success: false, error: error.message };
     }
 
-    // 保存分享记录到本地数据库
+    // 保存分享记录到 kol_shares 表
     const timestamp = Date.now();
     const recordId = timestamp.toString();
     let localExpiresAt = null;
@@ -66,10 +63,15 @@ export async function shareProject(projectData, options = {}) {
     // 项目集模式使用 groupId，单个项目模式使用 projectId
     const entityId = projectData.groupId || projectData.projectId;
 
-    await window.electron.db.run(
-      'INSERT OR REPLACE INTO shares (id, project_id, share_id, created_at, expires_at) VALUES (?, ?, ?, ?, ?)',
-      [recordId, entityId, shareId, timestamp, localExpiresAt]
-    );
+    await supabase
+      .from('kol_shares')
+      .insert([{
+        id: recordId,
+        project_id: entityId,
+        share_id: shareId,
+        created_at: timestamp,
+        expires_at: localExpiresAt
+      }]);
 
     return {
       success: true,
@@ -184,32 +186,33 @@ export async function deleteSharedProject(shareId) {
  * @param {string} projectId - 项目ID
  */
 export async function autoSyncProjectIfShared(projectId) {
-  try {
-    // 获取项目信息
-    const project = await window.electron.db.query(
-      'SELECT * FROM projects WHERE id = ?',
-      [projectId]
-    );
+  return await withErrorHandling(async () => {
+    // 导入新的数据层 API
+    const { projectDB, bloggerDB } = await import('./db.js');
 
-    if (project.length === 0) {
-      return { success: false, error: '项目不存在' };
+    // 获取项目信息
+    const projects = await projectDB.getAll();
+    const project = projects.find(p => p.id === projectId);
+
+    if (!project) {
+      throw new Error('项目不存在');
     }
 
-    const groupId = project[0].group_id;
+    const groupId = project.groupId;
 
     // 查询该项目是否已分享（单个项目模式）
-    const projectShares = await window.electron.db.query(
-      'SELECT share_id FROM shares WHERE project_id = ?',
-      [projectId]
-    );
+    const { data: projectShares } = await supabase
+      .from('kol_shares')
+      .select('share_id')
+      .eq('project_id', projectId);
 
     // 查询该项目所属的项目集是否已分享（项目集模式）
-    const groupShares = await window.electron.db.query(
-      'SELECT share_id FROM shares WHERE project_id = ?',
-      [groupId]
-    );
+    const { data: groupShares } = await supabase
+      .from('kol_shares')
+      .select('share_id')
+      .eq('project_id', groupId);
 
-    if (projectShares.length === 0 && groupShares.length === 0) {
+    if (!projectShares?.length && !groupShares?.length) {
       // 项目和项目集都未分享，无需同步
       return { success: true, synced: false };
     }
@@ -217,11 +220,8 @@ export async function autoSyncProjectIfShared(projectId) {
     let syncCount = 0;
 
     // 同步单个项目的分享
-    if (projectShares.length > 0) {
-      const bloggers = await window.electron.db.query(
-        'SELECT * FROM bloggers WHERE project_id = ?',
-        [projectId]
-      );
+    if (projectShares?.length > 0) {
+      const bloggers = await bloggerDB.getByProject(projectId);
 
       for (const share of projectShares) {
         const result = await updateSharedProject(share.share_id, bloggers);
@@ -232,22 +232,16 @@ export async function autoSyncProjectIfShared(projectId) {
     }
 
     // 同步项目集的分享
-    if (groupShares.length > 0) {
+    if (groupShares?.length > 0) {
       // 获取项目集下的所有项目
-      const allProjects = await window.electron.db.query(
-        'SELECT * FROM projects WHERE group_id = ?',
-        [groupId]
-      );
+      const allProjects = await projectDB.getByGroup(groupId);
 
       // 获取所有博主数据（项目集模式）
       const allBloggers = [];
       const projectsData = [];
 
       for (const proj of allProjects) {
-        const projectBloggers = await window.electron.db.query(
-          'SELECT * FROM bloggers WHERE project_id = ?',
-          [proj.id]
-        );
+        const projectBloggers = await bloggerDB.getByProject(proj.id);
 
         allBloggers.push(...projectBloggers);
 
@@ -280,10 +274,7 @@ export async function autoSyncProjectIfShared(projectId) {
       console.log(`✅ 已同步 ${syncCount} 个分享到云端`);
     }
     return { success: true, synced: true, count: syncCount };
-  } catch (error) {
-    console.error('自动同步失败:', error);
-    return { success: false, error: error.message };
-  }
+  }, '自动同步项目失败');
 }
 
 function generateShareId() {

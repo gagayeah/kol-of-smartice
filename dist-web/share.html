@@ -1,0 +1,647 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>项目分享 - 博主追踪</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      min-height: 100vh;
+      padding: 20px 10px;
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      border-radius: 16px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+      overflow: hidden;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #ffa5c1 0%, #ffb7d5 100%);
+      color: white;
+      padding: 30px 20px;
+      text-align: center;
+    }
+
+    .header h1 {
+      font-size: 24px;
+      margin-bottom: 5px;
+      font-weight: 600;
+    }
+
+    .header .subtitle {
+      opacity: 0.9;
+      font-size: 14px;
+      margin-bottom: 5px;
+    }
+
+    .header .update-time {
+      opacity: 0.8;
+      font-size: 12px;
+      margin-top: 8px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 15px;
+      padding: 20px;
+      background: #f7f9fc;
+    }
+
+    .stat-card {
+      background: white;
+      border-radius: 12px;
+      padding: 15px;
+      text-align: center;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    }
+
+    .stat-card .label {
+      font-size: 12px;
+      color: #666;
+      margin-bottom: 5px;
+    }
+
+    .stat-card .value {
+      font-size: 24px;
+      font-weight: 700;
+      color: #333;
+    }
+
+    .stat-card.total .value { color: #667eea; }
+    .stat-card.published .value { color: #52c41a; }
+    .stat-card.reviewing .value { color: #faad14; }
+    .stat-card.editing .value { color: #ff7875; }
+    .stat-card.finalized .value { color: #1890ff; }
+
+    .table-container {
+      overflow-x: auto;
+      padding: 20px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    thead {
+      background: #fafafa;
+    }
+
+    th {
+      padding: 12px 8px;
+      text-align: left;
+      font-weight: 600;
+      color: #333;
+      border-bottom: 2px solid #e8e8e8;
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 12px 8px;
+      border-bottom: 1px solid #f0f0f0;
+      color: #595959;
+    }
+
+    tbody tr:hover {
+      background: #fafafa;
+    }
+
+    .status-tag {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .status-待审核 { background: #fff7e6; color: #fa8c16; }
+    .status-改稿中 { background: #fff1f0; color: #f5222d; }
+    .status-已定稿 { background: #e6f7ff; color: #1890ff; }
+    .status-已发布 { background: #f6ffed; color: #52c41a; }
+
+    .link {
+      color: #1890ff;
+      text-decoration: none;
+      word-break: break-all;
+    }
+
+    .link:hover {
+      text-decoration: underline;
+    }
+
+    .no-data {
+      color: #d9d9d9;
+      font-size: 12px;
+    }
+
+    .footer {
+      text-align: center;
+      padding: 20px;
+      color: #999;
+      font-size: 12px;
+      border-top: 1px solid #f0f0f0;
+    }
+
+    /* 标签页样式 */
+    .tabs {
+      display: flex;
+      gap: 8px;
+      padding: 20px 20px 0 20px;
+      background: #f7f9fc;
+      overflow-x: auto;
+      flex-wrap: wrap;
+    }
+
+    .tab {
+      padding: 10px 20px;
+      background: white;
+      border: 2px solid #e8e8e8;
+      border-radius: 8px 8px 0 0;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 500;
+      color: #666;
+      transition: all 0.3s;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    .tab:hover {
+      border-color: #ffa5c1;
+      color: #333;
+    }
+
+    .tab.active {
+      background: linear-gradient(135deg, #ffa5c1 0%, #ffb7d5 100%);
+      border-color: #ffa5c1;
+      color: white;
+      font-weight: 600;
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+
+    .loading .spinner {
+      width: 40px;
+      height: 40px;
+      margin: 0 auto 20px;
+      border: 4px solid #f3f3f3;
+      border-top: 4px solid #667eea;
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    .error {
+      text-align: center;
+      padding: 60px 20px;
+      color: #f5222d;
+    }
+
+    .error-icon {
+      font-size: 48px;
+      margin-bottom: 20px;
+    }
+
+    .password-modal {
+      display: none;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .password-modal.show {
+      display: flex;
+    }
+
+    .password-box {
+      background: white;
+      padding: 30px;
+      border-radius: 12px;
+      max-width: 400px;
+      width: 90%;
+    }
+
+    .password-box h3 {
+      margin-bottom: 20px;
+      color: #333;
+    }
+
+    .password-box input {
+      width: 100%;
+      padding: 12px;
+      border: 1px solid #d9d9d9;
+      border-radius: 8px;
+      font-size: 14px;
+      margin-bottom: 15px;
+    }
+
+    .password-box button {
+      width: 100%;
+      padding: 12px;
+      background: #667eea;
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    .password-box button:hover {
+      background: #5568d3;
+    }
+
+    .password-error {
+      color: #f5222d;
+      font-size: 12px;
+      margin-top: -10px;
+      margin-bottom: 10px;
+    }
+
+    /* 移动端适配 */
+    @media (max-width: 768px) {
+      body {
+        padding: 10px 5px;
+      }
+
+      .header h1 {
+        font-size: 20px;
+      }
+
+      .stats {
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        padding: 15px;
+      }
+
+      .stat-card {
+        padding: 12px;
+      }
+
+      .stat-card .value {
+        font-size: 20px;
+      }
+
+      table {
+        font-size: 12px;
+      }
+
+      th, td {
+        padding: 8px 4px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="app">
+    <div class="container">
+      <div class="loading">
+        <div class="spinner"></div>
+        <p>加载中...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- 密码输入弹窗 -->
+  <div id="passwordModal" class="password-modal">
+    <div class="password-box">
+      <h3>🔒 请输入访问密码</h3>
+      <input type="password" id="passwordInput" placeholder="请输入密码" />
+      <div id="passwordError" class="password-error" style="display: none;"></div>
+      <button onclick="submitPassword()">确认</button>
+    </div>
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://ewspjkpkkrgsrpzgdoex.supabase.co';
+    const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3c3Bqa3Bra3Jnc3Jwemdkb2V4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1MDc3NzksImV4cCI6MjA3NTA4Mzc3OX0.TBS2mwYwOGhwXzZ1dXiBQk0jzMSxsqkGl7uheogevUE';
+    const SHARE_ID = null; // 将被替换为实际的 shareId
+
+    const supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    let currentShareId = null;
+    let needsPassword = false;
+
+    // 获取分享ID
+    function getShareId() {
+      // 如果是独立 HTML 文件，使用嵌入的 SHARE_ID
+      if (SHARE_ID) {
+        return SHARE_ID;
+      }
+      // 否则从 URL 路径中提取
+      const path = window.location.pathname;
+      const match = path.match(/\/share\/([a-zA-Z0-9]+)/);
+      return match ? match[1] : null;
+    }
+
+    // 加载分享数据
+    async function loadShareData(password = null) {
+      const shareId = getShareId();
+      if (!shareId) {
+        showError('无效的分享链接');
+        return;
+      }
+
+      currentShareId = shareId;
+
+      try {
+        let query = supabase
+          .from('shared_projects')
+          .select('*')
+          .eq('share_id', shareId)
+          .single();
+
+        const { data, error } = await query;
+
+        if (error) {
+          showError('分享不存在或已过期');
+          return;
+        }
+
+        // 检查是否过期
+        if (data.expires_at) {
+          const expiryDate = new Date(data.expires_at);
+          if (expiryDate < new Date()) {
+            showError('分享已过期');
+            return;
+          }
+        }
+
+        // 检查密码
+        if (data.password) {
+          if (!password) {
+            needsPassword = true;
+            showPasswordModal();
+            return;
+          }
+          if (data.password !== password) {
+            showPasswordError('密码错误，请重试');
+            return;
+          }
+        }
+
+        // 增加查看次数
+        await supabase
+          .from('shared_projects')
+          .update({ view_count: (data.view_count || 0) + 1 })
+          .eq('share_id', shareId);
+
+        // 渲染页面
+        renderPage(data);
+      } catch (error) {
+        console.error('加载失败:', error);
+        showError('加载失败，请稍后重试');
+      }
+    }
+
+    // 渲染页面
+    function renderPage(data) {
+      const bloggers = data.bloggers || [];
+      const projects = data.projects || null; // 项目集模式下的项目列表
+      const isGroupMode = projects && projects.length > 0;
+
+      const total = bloggers.length;
+      const published = bloggers.filter(b => b.status === '已发布').length;
+      const reviewing = bloggers.filter(b => b.status === '待审核').length;
+      const editing = bloggers.filter(b => b.status === '改稿中').length;
+      const finalized = bloggers.filter(b => b.status === '已定稿').length;
+
+      const updateTime = new Date(data.updated_at).toLocaleString('zh-CN');
+
+      // 渲染博主表格行
+      function renderBloggerRow(blogger) {
+        return `
+          <tr>
+            <td>
+              ${blogger.profileUrl
+                ? `<a href="${blogger.profileUrl}" class="link" target="_blank">${blogger.nickname}</a>`
+                : blogger.nickname
+              }
+            </td>
+            <td>${blogger.followers ? blogger.followers.toLocaleString() : '-'}</td>
+            <td><span class="status-tag status-${blogger.status}">${blogger.status}</span></td>
+            <td>
+              ${blogger.xhsLink || blogger.xhs_link
+                ? `<a href="${blogger.xhsLink || blogger.xhs_link}" class="link" target="_blank">查看</a>`
+                : '<span class="no-data">-</span>'
+              }
+            </td>
+            <td>
+              ${blogger.dianpingLink || blogger.dianping_link
+                ? `<a href="${blogger.dianpingLink || blogger.dianping_link}" class="link" target="_blank">查看</a>`
+                : '<span class="no-data">-</span>'
+              }
+            </td>
+            <td>
+              ${blogger.douyinLink || blogger.douyin_link
+                ? `<a href="${blogger.douyinLink || blogger.douyin_link}" class="link" target="_blank">查看</a>`
+                : '<span class="no-data">-</span>'
+              }
+            </td>
+          </tr>
+        `;
+      }
+
+      // 项目集模式：使用标签页显示
+      let tableContent = '';
+      if (isGroupMode) {
+        // 生成标签页导航
+        const tabs = projects.map((project, index) => `
+          <div class="tab ${index === 0 ? 'active' : ''}" onclick="switchTab(${index})">
+            📁 ${project.name} <span style="opacity: 0.8;">(${project.bloggers.length})</span>
+          </div>
+        `).join('');
+
+        // 生成每个标签页的内容
+        const tabContents = projects.map((project, index) => `
+          <div class="tab-content ${index === 0 ? 'active' : ''}" id="tab-${index}">
+            <div class="table-container">
+              <table>
+                <thead>
+                  <tr>
+                    <th>昵称</th>
+                    <th>粉丝数</th>
+                    <th>状态</th>
+                    <th>小红书</th>
+                    <th>大众点评</th>
+                    <th>抖音</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${project.bloggers.map(blogger => renderBloggerRow(blogger)).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        `).join('');
+
+        tableContent = `
+          <div class="tabs">${tabs}</div>
+          ${tabContents}
+        `;
+      } else {
+        // 单个项目模式：直接显示所有博主
+        tableContent = `
+          <div class="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>昵称</th>
+                  <th>粉丝数</th>
+                  <th>状态</th>
+                  <th>小红书</th>
+                  <th>大众点评</th>
+                  <th>抖音</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${bloggers.map(blogger => renderBloggerRow(blogger)).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      const html = `
+        <div class="header">
+          <h1>${data.project_name}</h1>
+          <div class="subtitle">${data.project_group_name || ''}</div>
+          <div class="update-time">最后更新：${updateTime}</div>
+        </div>
+
+        <div class="stats">
+          <div class="stat-card total">
+            <div class="label">总博主数</div>
+            <div class="value">${total}</div>
+          </div>
+          <div class="stat-card published">
+            <div class="label">已发布</div>
+            <div class="value">${published}</div>
+          </div>
+          <div class="stat-card finalized">
+            <div class="label">已定稿</div>
+            <div class="value">${finalized}</div>
+          </div>
+          <div class="stat-card editing">
+            <div class="label">改稿中</div>
+            <div class="value">${editing}</div>
+          </div>
+          <div class="stat-card reviewing">
+            <div class="label">待审核</div>
+            <div class="value">${reviewing}</div>
+          </div>
+        </div>
+
+        ${tableContent}
+
+        <div class="footer">
+          由 多项目博主管理系统 生成 · 查看次数: ${data.view_count || 0}
+        </div>
+      `;
+
+      document.getElementById('app').innerHTML = `<div class="container">${html}</div>`;
+    }
+
+    // 显示错误
+    function showError(message) {
+      const html = `
+        <div class="container">
+          <div class="error">
+            <div class="error-icon">❌</div>
+            <h2>加载失败</h2>
+            <p>${message}</p>
+          </div>
+        </div>
+      `;
+      document.getElementById('app').innerHTML = html;
+    }
+
+    // 显示密码输入框
+    function showPasswordModal() {
+      document.getElementById('passwordModal').classList.add('show');
+      document.getElementById('passwordInput').focus();
+    }
+
+    // 显示密码错误
+    function showPasswordError(message) {
+      const errorDiv = document.getElementById('passwordError');
+      errorDiv.textContent = message;
+      errorDiv.style.display = 'block';
+      document.getElementById('passwordInput').value = '';
+      document.getElementById('passwordInput').focus();
+    }
+
+    // 提交密码
+    function submitPassword() {
+      const password = document.getElementById('passwordInput').value;
+      if (!password) {
+        showPasswordError('请输入密码');
+        return;
+      }
+      document.getElementById('passwordModal').classList.remove('show');
+      loadShareData(password);
+    }
+
+    // 回车提交密码
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('passwordInput').addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+          submitPassword();
+        }
+      });
+    });
+
+    // 标签页切换函数
+    function switchTab(index) {
+      // 移除所有活动状态
+      document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+
+      // 添加活动状态
+      document.querySelectorAll('.tab')[index].classList.add('active');
+      document.getElementById(`tab-${index}`).classList.add('active');
+    }
+
+    // 页面加载时获取数据
+    loadShareData();
+  </script>
+</body>
+</html>

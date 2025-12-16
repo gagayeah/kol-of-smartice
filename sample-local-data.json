@@ -1,0 +1,124 @@
+{
+  "projectGroups": [
+    {
+      "id": "group_1703123456789",
+      "name": "餐饮营销项目集",
+      "createdAt": 1703123456789,
+      "updatedAt": 1703123456789
+    },
+    {
+      "id": "group_1703123456790",
+      "name": "品牌推广项目集",
+      "createdAt": 1703123456790,
+      "updatedAt": 1703123456790
+    }
+  ],
+  "projects": [
+    {
+      "id": "project_1703123456791",
+      "groupId": "group_1703123456789",
+      "parentId": null,
+      "name": "春季新品推广",
+      "createdAt": 1703123456791,
+      "updatedAt": 1703123456791
+    },
+    {
+      "id": "project_1703123456792",
+      "groupId": "group_1703123456789",
+      "parentId": "project_1703123456791",
+      "name": "小红书KOL合作",
+      "createdAt": 1703123456792,
+      "updatedAt": 1703123456792
+    },
+    {
+      "id": "project_1703123456793",
+      "groupId": "group_1703123456790",
+      "parentId": null,
+      "name": "品牌形象升级",
+      "createdAt": 1703123456793,
+      "updatedAt": 1703123456793
+    }
+  ],
+  "bloggers": [
+    {
+      "id": "blogger_1703123456794",
+      "projectId": "project_1703123456792",
+      "nickname": "美食博主小红",
+      "followers": 50000,
+      "profileUrl": "https://www.xiaohongshu.com/user/profile/1",
+      "status": "待审核",
+      "xhsLink": "https://www.xiaohongshu.com/user/profile/1",
+      "dianpingLink": "",
+      "douyinLink": "",
+      "xhsLikes": 12500,
+      "xFavorites": 8560,
+      "xhsComments": 2340,
+      "xhsShares": 890,
+      "dianpingLikes": null,
+      "dianpingFavorites": null,
+      "dianpingComments": null,
+      "dianpingShares": null,
+      "douyinLikes": null,
+      "douyinFavorites": null,
+      "douyinComments": null,
+      "douyinShares": null,
+      "notes": "擅长美食拍摄，粉丝互动度高",
+      "createdAt": 1703123456794,
+      "updatedAt": 1703123456794
+    },
+    {
+      "id": "blogger_1703123456795",
+      "projectId": "project_1703123456792",
+      "nickname": "探店达人小明",
+      "followers": 80000,
+      "profileUrl": "https://www.xiaohongshu.com/user/profile/2",
+      "status": "已联系",
+      "xhsLink": "",
+      "dianpingLink": "https://www.dianping.com/user/profile/2",
+      "douyinLink": "",
+      "xhsLikes": null,
+      "xFavorites": null,
+      "xhsComments": null,
+      "xhsShares": null,
+      "dianpingLikes": 5600,
+      "dianpingFavorites": 3400,
+      "dianpingComments": 890,
+      "dianpingShares": 234,
+      "douyinLikes": null,
+      "douyinFavorites": null,
+      "douyinComments": null,
+      "douyinShares": null,
+      "notes": "大众点评VIP用户，本地探店经验丰富",
+      "createdAt": 1703123456795,
+      "updatedAt": 1703123456795
+    },
+    {
+      "id": "blogger_1703123456796",
+      "projectId": "project_1703123456793",
+      "nickname": "抖音吃货",
+      "followers": 120000,
+      "profileUrl": "https://www.douyin.com/user/3",
+      "status": "已确认",
+      "xhsLink": "",
+      "dianpingLink": "",
+      "douyinLink": "https://www.douyin.com/user/3",
+      "xhsLikes": null,
+      "xFavorites": null,
+      "xhsComments": null,
+      "xhsShares": null,
+      "dianpingLikes": null,
+      "dianpingFavorites": null,
+      "dianpingComments": null,
+      "dianpingShares": null,
+      "douyinLikes": 56000,
+      "douyinFavorites": 32000,
+      "douyinComments": 12340,
+      "douyinShares": 4500,
+      "notes": "抖音美食领域头部创作者，视频质量高",
+      "createdAt": 1703123456796,
+      "updatedAt": 1703123456796
+    }
+  ],
+  "currentGroupId": "group_1703123456789",
+  "currentProjectId": "project_1703123456792"
+}

@@ -253,7 +253,19 @@ export default function ProjectManagerPlanA({ projects, currentProject, currentG
 
   level1Items.push({
     key: 'add-level1',
-    label: <Button type="dashed" icon={<PlusOutlined />} size="small">新建项目</Button>,
+    label: (
+      <Button
+        type="dashed"
+        icon={<PlusOutlined />}
+        size="small"
+        onClick={(e) => {
+          e.stopPropagation();
+          openCreateModal();
+        }}
+      >
+        新建项目
+      </Button>
+    ),
     disabled: false,
   });
 
@@ -278,7 +290,19 @@ export default function ProjectManagerPlanA({ projects, currentProject, currentG
   if (selectedLevel1 && childProjects.length >= 0) {
     level2Items.push({
       key: 'add-level2',
-      label: <Button type="dashed" icon={<PlusOutlined />} size="small">添加子项目</Button>,
+      label: (
+        <Button
+          type="dashed"
+          icon={<PlusOutlined />}
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            openCreateModal(selectedLevel1);
+          }}
+        >
+          添加子项目
+        </Button>
+      ),
       disabled: false,
     });
   }
@@ -304,7 +328,19 @@ export default function ProjectManagerPlanA({ projects, currentProject, currentG
   if (selectedLevel2 && grandChildProjects.length >= 0) {
     level3Items.push({
       key: 'add-level3',
-      label: <Button type="dashed" icon={<PlusOutlined />} size="small">添加子项目</Button>,
+      label: (
+        <Button
+          type="dashed"
+          icon={<PlusOutlined />}
+          size="small"
+          onClick={(e) => {
+            e.stopPropagation();
+            openCreateModal(selectedLevel2);
+          }}
+        >
+          添加子项目
+        </Button>
+      ),
       disabled: false,
     });
   }

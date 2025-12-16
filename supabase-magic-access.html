@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多项目博主管理系统</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, #ffa5c1 0%, #ffb7d5 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .loading-container {
+            text-align: center;
+            color: white;
+        }
+        .spinner {
+            width: 50px;
+            height: 50px;
+            border: 4px solid rgba(255, 255, 255, 0.3);
+            border-top: 4px solid white;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin: 0 auto 20px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        h1 {
+            font-size: 24px;
+            margin: 0;
+            font-weight: 600;
+        }
+        p {
+            font-size: 16px;
+            margin: 10px 0 0;
+            opacity: 0.9;
+        }
+        iframe {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            border: none;
+            background: white;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div class="loading-container" id="loading">
+        <div class="spinner"></div>
+        <h1>多项目博主管理系统</h1>
+        <p>正在加载应用...</p>
+    </div>
+
+    <script>
+        // 配置
+        const SUPABASE_URL = 'https://ewspjkpkkrgsrpzgdoex.supabase.co';
+        const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV3c3Bqa3Bra3Jnc3Jwemdkb2V4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTk1MDc3NzksImV4cCI6MjA3NTA4Mzc3OX0.TBS2mwYwOGhwXzZ1dXiBQk0jzMSxsqkGl7uheogevUE';
+        const FUNCTION_URL = `${SUPABASE_URL}/functions/v1/web-app/`;
+
+        // 方法1: 使用iframe加载
+        function loadWithIframe() {
+            const iframe = document.createElement('iframe');
+            iframe.style.display = 'none';
+
+            // 使用fetch获取内容
+            fetch(FUNCTION_URL, {
+                headers: {
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                }
+            })
+            .then(response => response.text())
+            .then(html => {
+                // 创建完整的HTML文档
+                const fullHtml = `
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多项目博主管理系统</title>
+    <script>
+        // 重写fetch以自动添加认证头
+        const originalFetch = window.fetch;
+        window.fetch = function(url, options = {}) {
+            if (url.startsWith('${SUPABASE_URL}/storage/v1/object/public/')) {
+                options.headers = options.headers || {};
+                options.headers['Authorization'] = 'Bearer ${SUPABASE_ANON_KEY}';
+            }
+            return originalFetch(url, options);
+        };
+    </script>
+${html.replace('<!doctype html>', '').replace('<html lang="zh-CN">', '').replace('</html>', '')}
+</html>
+                `;
+
+                const blob = new Blob([fullHtml], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                iframe.src = url;
+
+                iframe.onload = function() {
+                    document.getElementById('loading').style.display = 'none';
+                    iframe.style.display = 'block';
+                };
+
+                document.body.appendChild(iframe);
+            })
+            .catch(error => {
+                console.error('加载失败:', error);
+                document.querySelector('h1').textContent = '加载失败';
+                document.querySelector('p').textContent = '请刷新页面重试';
+            });
+        }
+
+        // 方法2: 直接替换当前页面内容
+        function loadDirectly() {
+            fetch(FUNCTION_URL, {
+                headers: {
+                    'Authorization': `Bearer ${SUPABASE_ANON_KEY}`
+                }
+            })
+            .then(response => response.text())
+            .then(html => {
+                // 提取body内容
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                // 保留head中的有用信息
+                const headContent = doc.head.innerHTML;
+                const bodyContent = doc.body.innerHTML;
+
+                // 清空当前页面并加载新内容
+                document.head.innerHTML = headContent;
+                document.body.innerHTML = bodyContent;
+
+                // 重新执行脚本
+                const scripts = document.querySelectorAll('script');
+                scripts.forEach(script => {
+                    const newScript = document.createElement('script');
+                    if (script.src) {
+                        newScript.src = script.src;
+                    } else {
+                        newScript.textContent = script.textContent;
+                    }
+                    document.head.appendChild(newScript);
+                });
+            })
+            .catch(error => {
+                console.error('加载失败:', error);
+                loadWithIframe(); // 备用方案
+            });
+        }
+
+        // 优先使用直接加载，失败则使用iframe
+        loadDirectly();
+    </script>
+</body>
+</html>

@@ -1,163 +1,167 @@
-// 数据库工具 - 支持Electron SQLite和浏览器LocalStorage
+// 数据库工具 - 使用 Supabase 云数据库
 
-const DB_KEY = 'blogger_tracker_db';
+import {
+  supabase,
+  withErrorHandling,
+  generateCacheKey,
+  cacheManager,
+  transformFromSupabase,
+  transformToSupabase,
+  getNetworkStatus,
+  DatabaseError
+} from './supabase-client.js';
 
-// 检测是否在Electron环境中
+// 本地存储当前选中的项目集和项目ID（用于会话保持）
+const CURRENT_GROUP_KEY = 'current_group_id';
+const CURRENT_PROJECT_KEY = 'current_project_id';
+
+// 检测是否在Electron环境中（保持兼容性）
 const isElectron = () => typeof window !== 'undefined' && window.electron;
 
-// LocalStorage版本（浏览器环境）
-function initLocalDB() {
-  const db = localStorage.getItem(DB_KEY);
-  if (!db) {
-    const initialData = {
-      projectGroups: [],
-      projects: [],
-      bloggers: [],
-      currentGroupId: null,
-      currentProjectId: null,
-    };
-    localStorage.setItem(DB_KEY, JSON.stringify(initialData));
-    return initialData;
+// 获取当前项目集ID
+function getCurrentGroupId() {
+  return localStorage.getItem(CURRENT_GROUP_KEY);
+}
+
+// 设置当前项目集ID
+function setCurrentGroupId(groupId) {
+  if (groupId) {
+    localStorage.setItem(CURRENT_GROUP_KEY, groupId);
+  } else {
+    localStorage.removeItem(CURRENT_GROUP_KEY);
   }
-  return JSON.parse(db);
 }
 
-function getLocalDB() {
-  return initLocalDB();
+// 获取当前项目ID
+function getCurrentProjectId() {
+  return localStorage.getItem(CURRENT_PROJECT_KEY);
 }
 
-function saveLocalDB(data) {
-  localStorage.setItem(DB_KEY, JSON.stringify(data));
+// 设置当前项目ID
+function setCurrentProjectId(projectId) {
+  if (projectId) {
+    localStorage.setItem(CURRENT_PROJECT_KEY, projectId);
+  } else {
+    localStorage.removeItem(CURRENT_PROJECT_KEY);
+  }
 }
 
 // 项目集管理（一级）
 export const projectGroupDB = {
   // 获取所有项目集
   async getAll() {
-    if (isElectron()) {
-      const groups = await window.electron.db.query(
-        'SELECT * FROM project_groups ORDER BY created_at DESC',
-        []
-      );
-      return groups.map(g => ({
-        id: g.id,
-        name: g.name,
-        createdAt: g.created_at,
-        updatedAt: g.updated_at,
-      }));
+    const cacheKey = generateCacheKey('kol_project_groups');
+
+    // 尝试从缓存获取
+    const cached = cacheManager.get(cacheKey);
+    if (cached) {
+      return cached;
     }
 
-    const db = getLocalDB();
-    return db.projectGroups || [];
+    return await withErrorHandling(async () => {
+      const { data } = await supabase
+        .from('kol_project_groups')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      const transformed = data.map(item => transformFromSupabase(item, 'kol_project_groups'));
+
+      // 缓存结果
+      cacheManager.set(cacheKey, transformed);
+
+      return transformed;
+    }, '获取项目集列表失败');
   },
 
   // 创建项目集
   async create(name) {
-    const id = Date.now().toString();
-    const now = Date.now();
+    return await withErrorHandling(async () => {
+      const now = Date.now();
+      const { data } = await supabase
+        .from('kol_project_groups')
+        .insert([transformToSupabase({ name, createdAt: now, updatedAt: now }, 'kol_project_groups')])
+        .select()
+        .single();
 
-    if (isElectron()) {
-      await window.electron.db.run(
-        'INSERT INTO project_groups (id, name, created_at, updated_at) VALUES (?, ?, ?, ?)',
-        [id, name, now, now]
-      );
+      const transformed = transformFromSupabase(data, 'kol_project_groups');
 
       // 设置为当前项目集
-      localStorage.setItem('currentGroupId', id);
+      setCurrentGroupId(transformed.id);
+      setCurrentProjectId(null); // 清理当前项目ID
 
-      return { id, name, createdAt: now, updatedAt: now };
-    }
+      // 清除相关缓存
+      cacheManager.clear('kol_project_groups');
 
-    const db = getLocalDB();
-    if (!db.projectGroups) db.projectGroups = [];
-
-    const newGroup = {
-      id,
-      name,
-      createdAt: now,
-      updatedAt: now,
-    };
-    db.projectGroups.push(newGroup);
-    db.currentGroupId = newGroup.id;
-    saveLocalDB(db);
-    return newGroup;
+      return transformed;
+    }, '创建项目集失败');
   },
 
   // 获取当前项目集
   async getCurrent() {
     const groups = await this.getAll();
+    const currentId = getCurrentGroupId();
 
-    if (isElectron()) {
-      const currentId = localStorage.getItem('currentGroupId');
-      return groups.find(g => g.id === currentId) || groups[0];
-    }
+    // 添加调试日志
+    console.log('getCurrent - currentId from localStorage:', currentId);
+    console.log('getCurrent - available groups:', groups.map(g => ({ id: g.id, name: g.name })));
 
-    const db = getLocalDB();
-    return groups.find(g => g.id === db.currentGroupId) || groups[0];
+    const currentGroup = groups.find(g => g.id === currentId) || groups[0];
+    console.log('getCurrent - returning group:', currentGroup);
+
+    return currentGroup;
   },
 
   // 切换项目集
   async switch(groupId) {
-    if (isElectron()) {
-      localStorage.setItem('currentGroupId', groupId);
-      return;
-    }
+    setCurrentGroupId(groupId);
+    // 重要：清理currentProjectId，防止项目显示在错误的项目集中
+    setCurrentProjectId(null);
 
-    const db = getLocalDB();
-    db.currentGroupId = groupId;
-    saveLocalDB(db);
+    // 清除相关缓存
+    cacheManager.clear('kol_projects');
+    cacheManager.clear('kol_bloggers');
   },
 
   // 重命名项目集
   async rename(groupId, newName) {
-    if (isElectron()) {
-      await window.electron.db.run(
-        'UPDATE project_groups SET name = ?, updated_at = ? WHERE id = ?',
-        [newName, Date.now(), groupId]
-      );
-      return;
-    }
+    return await withErrorHandling(async () => {
+      const { data } = await supabase
+        .from('kol_project_groups')
+        .update({
+          name: newName,
+          updated_at: Date.now()
+        })
+        .eq('id', groupId)
+        .select()
+        .single();
 
-    const db = getLocalDB();
-    const group = db.projectGroups?.find(g => g.id === groupId);
-    if (group) {
-      group.name = newName;
-      group.updatedAt = Date.now();
-      saveLocalDB(db);
-    }
+      // 清除相关缓存
+      cacheManager.clear('kol_project_groups');
+
+      return transformFromSupabase(data, 'kol_project_groups');
+    }, '重命名项目集失败');
   },
 
   // 删除项目集（会级联删除所有项目和博主）
   async delete(groupId) {
-    if (isElectron()) {
-      // SQLite会通过外键约束自动级联删除
-      await window.electron.db.run('DELETE FROM project_groups WHERE id = ?', [groupId]);
+    return await withErrorHandling(async () => {
+      // Supabase会通过外键约束自动级联删除
+      await supabase
+        .from('kol_project_groups')
+        .delete()
+        .eq('id', groupId);
 
-      const currentId = localStorage.getItem('currentGroupId');
+      const currentId = getCurrentGroupId();
       if (currentId === groupId) {
         const groups = await this.getAll();
-        localStorage.setItem('currentGroupId', groups[0]?.id || '');
+        setCurrentGroupId(groups[0]?.id || null);
         // 重要：清理currentProjectId，因为原项目已删除
-        localStorage.setItem('currentProjectId', '');
+        setCurrentProjectId(null);
       }
-      return;
-    }
 
-    const db = getLocalDB();
-    // 删除项目集下的所有项目
-    const projectsToDelete = db.projects?.filter(p => p.groupId === groupId).map(p => p.id) || [];
-    // 删除这些项目的所有博主
-    db.bloggers = db.bloggers?.filter(b => !projectsToDelete.includes(b.projectId)) || [];
-    // 删除项目
-    db.projects = db.projects?.filter(p => p.groupId !== groupId) || [];
-    // 删除项目集
-    db.projectGroups = db.projectGroups?.filter(g => g.id !== groupId) || [];
-
-    if (db.currentGroupId === groupId) {
-      db.currentGroupId = db.projectGroups[0]?.id || null;
-      db.currentProjectId = null;
-    }
-    saveLocalDB(db);
+      // 清除所有相关缓存
+      cacheManager.clear();
+    }, '删除项目集失败');
   },
 };
 
@@ -165,173 +169,173 @@ export const projectGroupDB = {
 export const projectDB = {
   // 获取所有项目
   async getAll() {
-    if (isElectron()) {
-      const projects = await window.electron.db.query(
-        'SELECT * FROM projects ORDER BY created_at DESC',
-        []
-      );
-      return projects.map(p => ({
-        id: p.id,
-        groupId: p.group_id,
-        parentId: p.parent_id,
-        name: p.name,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at,
-      }));
+    const cacheKey = generateCacheKey('kol_projects');
+
+    // 尝试从缓存获取
+    const cached = cacheManager.get(cacheKey);
+    if (cached) {
+      return cached;
     }
-    return getLocalDB().projects || [];
+
+    return await withErrorHandling(async () => {
+      const { data } = await supabase
+        .from('kol_projects')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      const transformed = data.map(item => transformFromSupabase(item, 'kol_projects'));
+
+      // 缓存结果
+      cacheManager.set(cacheKey, transformed);
+
+      return transformed;
+    }, '获取项目列表失败');
   },
 
   // 获取特定项目集的所有项目（包括所有层级）
   async getByGroup(groupId) {
-    if (isElectron()) {
-      const projects = await window.electron.db.query(
-        'SELECT * FROM projects WHERE group_id = ? ORDER BY created_at DESC',
-        [groupId]
-      );
-      return projects.map(p => ({
-        id: p.id,
-        groupId: p.group_id,
-        parentId: p.parent_id,
-        name: p.name,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at,
-      }));
+    const cacheKey = generateCacheKey('kol_projects', { group_id: groupId });
+
+    // 尝试从缓存获取
+    const cached = cacheManager.get(cacheKey);
+    if (cached) {
+      return cached;
     }
 
-    const db = getLocalDB();
-    return (db.projects || []).filter(p => p.groupId === groupId);
+    return await withErrorHandling(async () => {
+      const { data } = await supabase
+        .from('kol_projects')
+        .select('*')
+        .eq('group_id', groupId)
+        .order('created_at', { ascending: false });
+
+      const transformed = data.map(item => transformFromSupabase(item, 'kol_projects'));
+
+      // 缓存结果
+      cacheManager.set(cacheKey, transformed);
+
+      return transformed;
+    }, '获取项目集项目失败');
   },
 
   // 获取某个项目的所有子项目
   async getChildren(parentId) {
-    if (isElectron()) {
-      const projects = await window.electron.db.query(
-        'SELECT * FROM projects WHERE parent_id = ? ORDER BY created_at DESC',
-        [parentId]
-      );
-      return projects.map(p => ({
-        id: p.id,
-        groupId: p.group_id,
-        parentId: p.parent_id,
-        name: p.name,
-        createdAt: p.created_at,
-        updatedAt: p.updated_at,
-      }));
+    const cacheKey = generateCacheKey('kol_projects', { parent_id: parentId });
+
+    // 尝试从缓存获取
+    const cached = cacheManager.get(cacheKey);
+    if (cached) {
+      return cached;
     }
 
-    const db = getLocalDB();
-    return (db.projects || []).filter(p => p.parentId === parentId);
+    return await withErrorHandling(async () => {
+      const { data } = await supabase
+        .from('kol_projects')
+        .select('*')
+        .eq('parent_id', parentId)
+        .order('created_at', { ascending: false });
+
+      const transformed = data.map(item => transformFromSupabase(item, 'kol_projects'));
+
+      // 缓存结果
+      cacheManager.set(cacheKey, transformed);
+
+      return transformed;
+    }, '获取子项目失败');
   },
 
   // 创建项目（需要指定所属项目集，可选父项目）
   async create(name, groupId, parentId = null) {
-    const id = Date.now().toString();
-    const now = Date.now();
+    return await withErrorHandling(async () => {
+      const now = Date.now();
+      const { data } = await supabase
+        .from('kol_projects')
+        .insert([transformToSupabase({
+          name,
+          groupId,
+          parentId,
+          createdAt: now,
+          updatedAt: now
+        }, 'kol_projects')])
+        .select()
+        .single();
 
-    if (isElectron()) {
-      await window.electron.db.run(
-        'INSERT INTO projects (id, group_id, parent_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)',
-        [id, groupId, parentId, name, now, now]
-      );
+      const transformed = transformFromSupabase(data, 'kol_projects');
 
-      // 设置为当前项目
-      localStorage.setItem('currentProjectId', id);
+      // 只有当项目属于当前项目集时，才设置为当前项目
+      const currentGroupId = getCurrentGroupId();
+      if (groupId === currentGroupId) {
+        setCurrentProjectId(transformed.id);
+      }
 
-      return { id, groupId, parentId, name, createdAt: now, updatedAt: now };
-    }
+      // 清除相关缓存
+      cacheManager.clear('kol_projects');
 
-    const db = getLocalDB();
-    if (!db.projects) db.projects = [];
-
-    const newProject = {
-      id,
-      groupId,
-      parentId,
-      name,
-      createdAt: now,
-      updatedAt: now,
-    };
-    db.projects.push(newProject);
-    db.currentProjectId = newProject.id;
-    saveLocalDB(db);
-    return newProject;
+      return transformed;
+    }, '创建项目失败');
   },
 
   // 获取当前项目（必须是当前项目集的项目）
   async getCurrent(currentGroupId = null) {
-    if (isElectron()) {
-      const currentId = localStorage.getItem('currentProjectId');
-      const currentGroupId = currentGroupId || localStorage.getItem('currentGroupId');
+    const currentId = getCurrentProjectId();
+    const groupId = currentGroupId || getCurrentGroupId();
 
-      if (!currentGroupId) return null;
+    if (!groupId) return null;
 
-      // 获取当前项目集的所有项目
-      const groupProjects = await this.getByGroup(currentGroupId);
-      // 只在当前项目集中查找
-      return groupProjects.find(p => p.id === currentId) || groupProjects[0] || null;
-    }
-
-    const db = getLocalDB();
-    if (!db.currentGroupId) return null;
-
-    const groupProjects = db.projects?.filter(p => p.groupId === db.currentGroupId) || [];
-    return groupProjects.find(p => p.id === db.currentProjectId) || groupProjects[0] || null;
+    // 获取当前项目集的所有项目
+    const groupProjects = await this.getByGroup(groupId);
+    // 只在当前项目集中查找
+    return groupProjects.find(p => p.id === currentId) || groupProjects[0] || null;
   },
 
   // 切换项目
   async switch(projectId) {
-    if (isElectron()) {
-      localStorage.setItem('currentProjectId', projectId);
-      return;
-    }
-
-    const db = getLocalDB();
-    db.currentProjectId = projectId;
-    saveLocalDB(db);
+    setCurrentProjectId(projectId);
   },
 
   // 重命名项目
   async rename(projectId, newName) {
-    if (isElectron()) {
-      await window.electron.db.run(
-        'UPDATE projects SET name = ?, updated_at = ? WHERE id = ?',
-        [newName, Date.now(), projectId]
-      );
-      return;
-    }
+    return await withErrorHandling(async () => {
+      const { data } = await supabase
+        .from('kol_projects')
+        .update({
+          name: newName,
+          updated_at: Date.now()
+        })
+        .eq('id', projectId)
+        .select()
+        .single();
 
-    const db = getLocalDB();
-    const project = db.projects?.find(p => p.id === projectId);
-    if (project) {
-      project.name = newName;
-      project.updatedAt = Date.now();
-      saveLocalDB(db);
-    }
+      // 清除相关缓存
+      cacheManager.clear('kol_projects');
+
+      return transformFromSupabase(data, 'kol_projects');
+    }, '重命名项目失败');
   },
 
   // 更新项目的父级（调整层级）
   async updateParent(projectId, newParentId) {
-    if (isElectron()) {
-      await window.electron.db.run(
-        'UPDATE projects SET parent_id = ?, updated_at = ? WHERE id = ?',
-        [newParentId, Date.now(), projectId]
-      );
-      return;
-    }
+    return await withErrorHandling(async () => {
+      const { data } = await supabase
+        .from('kol_projects')
+        .update({
+          parent_id: newParentId,
+          updated_at: Date.now()
+        })
+        .eq('id', projectId)
+        .select()
+        .single();
 
-    const db = getLocalDB();
-    const project = db.projects?.find(p => p.id === projectId);
-    if (project) {
-      project.parentId = newParentId;
-      project.updatedAt = Date.now();
-      saveLocalDB(db);
-    }
+      // 清除相关缓存
+      cacheManager.clear('kol_projects');
+
+      return transformFromSupabase(data, 'kol_projects');
+    }, '更新项目层级失败');
   },
 
   // 删除项目（递归删除所有子项目和博主）
   async delete(projectId) {
-    if (isElectron()) {
+    return await withErrorHandling(async () => {
       // 递归获取所有子项目ID
       const getAllChildIds = async (parentId) => {
         const children = await this.getChildren(parentId);
@@ -346,50 +350,32 @@ export const projectDB = {
       const allProjectIds = await getAllChildIds(projectId);
 
       // 删除所有项目的博主
-      for (const id of allProjectIds) {
-        await window.electron.db.run('DELETE FROM bloggers WHERE project_id = ?', [id]);
-      }
+      await supabase
+        .from('kol_bloggers')
+        .delete()
+        .in('project_id', allProjectIds);
 
-      // 删除所有项目
-      for (const id of allProjectIds) {
-        await window.electron.db.run('DELETE FROM projects WHERE id = ?', [id]);
-      }
+      // 删除所有项目（Supabase会通过外键约束自动级联删除子项目）
+      await supabase
+        .from('kol_projects')
+        .delete()
+        .in('id', allProjectIds);
 
-      const currentId = localStorage.getItem('currentProjectId');
+      const currentId = getCurrentProjectId();
       if (allProjectIds.includes(currentId)) {
         // 获取当前项目集的项目，而不是所有项目
-        const currentGroupId = localStorage.getItem('currentGroupId');
+        const currentGroupId = getCurrentGroupId();
         if (currentGroupId) {
           const groupProjects = await this.getByGroup(currentGroupId);
-          localStorage.setItem('currentProjectId', groupProjects[0]?.id || '');
+          setCurrentProjectId(groupProjects[0]?.id || null);
         } else {
-          localStorage.setItem('currentProjectId', '');
+          setCurrentProjectId(null);
         }
       }
-      return;
-    }
 
-    const db = getLocalDB();
-
-    // LocalStorage版本的递归删除
-    const getAllChildIds = (parentId) => {
-      const children = (db.projects || []).filter(p => p.parentId === parentId);
-      let allIds = [parentId];
-      for (const child of children) {
-        allIds = allIds.concat(getAllChildIds(child.id));
-      }
-      return allIds;
-    };
-
-    const allProjectIds = getAllChildIds(projectId);
-
-    db.projects = db.projects.filter(p => !allProjectIds.includes(p.id));
-    db.bloggers = db.bloggers.filter(b => !allProjectIds.includes(b.projectId));
-
-    if (allProjectIds.includes(db.currentProjectId)) {
-      db.currentProjectId = db.projects[0]?.id || null;
-    }
-    saveLocalDB(db);
+      // 清除所有相关缓存
+      cacheManager.clear();
+    }, '删除项目失败');
   },
 };
 
@@ -397,54 +383,38 @@ export const projectDB = {
 export const bloggerDB = {
   // 获取当前项目的所有博主
   async getByProject(projectId) {
-    if (isElectron()) {
-      const bloggers = await window.electron.db.query(
-        'SELECT * FROM bloggers WHERE project_id = ? ORDER BY created_at DESC',
-        [projectId]
-      );
-      return bloggers.map(b => ({
-        id: String(b.id),
-        projectId: b.project_id,
-        nickname: b.nickname,
-        followers: b.followers,
-        profileUrl: b.profile_url,
-        status: b.status,
-        publishTime: b.publish_time,
-        xhsLink: b.xhs_link,
-        dianpingLink: b.dianping_link,
-        douyinLink: b.douyin_link,
-        notes: b.notes || '',
-        // 小红书互动数据
-        xhsLikes: b.xhs_likes,
-        xhsFavorites: b.xhs_favorites,
-        xhsComments: b.xhs_comments,
-        xhsShares: b.xhs_shares,
-        // 大众点评互动数据
-        dianpingLikes: b.dianping_likes,
-        dianpingFavorites: b.dianping_favorites,
-        dianpingComments: b.dianping_comments,
-        dianpingShares: b.dianping_shares,
-        // 抖音互动数据
-        douyinLikes: b.douyin_likes,
-        douyinFavorites: b.douyin_favorites,
-        douyinComments: b.douyin_comments,
-        douyinShares: b.douyin_shares,
-        createdAt: b.created_at,
-        updatedAt: b.updated_at,
-      }));
+    const cacheKey = generateCacheKey('kol_bloggers', { project_id: projectId });
+
+    // 尝试从缓存获取
+    const cached = cacheManager.get(cacheKey);
+    if (cached) {
+      return cached;
     }
 
-    const db = getLocalDB();
-    return db.bloggers.filter(b => b.projectId === projectId);
+    return await withErrorHandling(async () => {
+      const { data } = await supabase
+        .from('kol_bloggers')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false });
+
+      const transformed = data.map(item => transformFromSupabase(item, 'kol_bloggers'));
+
+      // 缓存结果
+      cacheManager.set(cacheKey, transformed);
+
+      return transformed;
+    }, '获取博主列表失败');
   },
 
   // 批量导入博主
   async importBatch(projectId, bloggers) {
     console.log('importBatch 收到的数据：', bloggers);
 
-    if (isElectron()) {
+    return await withErrorHandling(async () => {
       const existingBloggers = await this.getByProject(projectId);
       const newBloggers = [];
+      const insertData = [];
 
       for (const blogger of bloggers) {
         // 去重：检查昵称+主页链接
@@ -458,45 +428,37 @@ export const bloggerDB = {
         }
 
         const now = Date.now();
-        await window.electron.db.run(
-          `INSERT INTO bloggers (
-            project_id, nickname, followers, profile_url, status,
-            publish_time, xhs_link, dianping_link, douyin_link, notes,
-            xhs_likes, xhs_favorites, xhs_comments, xhs_shares,
-            dianping_likes, dianping_favorites, dianping_comments, dianping_shares,
-            douyin_likes, douyin_favorites, douyin_comments, douyin_shares,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            projectId,
-            blogger.nickname || '',
-            blogger.followers || 0,
-            blogger.profileUrl || '',
-            '待审核',
-            null,
-            '',
-            '',
-            '',
-            '',
-            // 小红书互动数据
-            blogger.xhsLikes || null,
-            blogger.xhsFavorites || null,
-            blogger.xhsComments || null,
-            blogger.xhsShares || null,
-            // 大众点评互动数据
-            blogger.dianpingLikes || null,
-            blogger.dianpingFavorites || null,
-            blogger.dianpingComments || null,
-            blogger.dianpingShares || null,
-            // 抖音互动数据
-            blogger.douyinLikes || null,
-            blogger.douyinFavorites || null,
-            blogger.douyinComments || null,
-            blogger.douyinShares || null,
-            now,
-            now,
-          ]
-        );
+        const newBloggerData = {
+          projectId,
+          nickname: blogger.nickname || '',
+          followers: blogger.followers || 0,
+          profileUrl: blogger.profileUrl || '',
+          status: '待审核',
+          publishTime: null,
+          xhsLink: '',
+          dianpingLink: '',
+          douyinLink: '',
+          notes: '',
+          // 小红书互动数据
+          xhsLikes: blogger.xhsLikes || null,
+          xhsFavorites: blogger.xhsFavorites || null,
+          xhsComments: blogger.xhsComments || null,
+          xhsShares: blogger.xhsShares || null,
+          // 大众点评互动数据
+          dianpingLikes: blogger.dianpingLikes || null,
+          dianpingFavorites: blogger.dianpingFavorites || null,
+          dianpingComments: blogger.dianpingComments || null,
+          dianpingShares: blogger.dianpingShares || null,
+          // 抖音互动数据
+          douyinLikes: blogger.douyinLikes || null,
+          douyinFavorites: blogger.douyinFavorites || null,
+          douyinComments: blogger.douyinComments || null,
+          douyinShares: blogger.douyinShares || null,
+          createdAt: now,
+          updatedAt: now,
+        };
+
+        insertData.push(transformToSupabase(newBloggerData, 'kol_bloggers'));
 
         newBloggers.push({
           projectId,
@@ -507,219 +469,82 @@ export const bloggerDB = {
         });
       }
 
-      console.log('成功导入的博主列表：', newBloggers);
-      return newBloggers;
-    }
+      if (insertData.length > 0) {
+        // 批量插入到 Supabase
+        const { data } = await supabase
+          .from('kol_bloggers')
+          .insert(insertData)
+          .select();
 
-    // LocalStorage版本
-    const db = getLocalDB();
-    const existingBloggers = await this.getByProject(projectId);
+        console.log('成功导入的博主列表：', newBloggers);
 
-    const newBloggers = [];
-    let idCounter = 0;
-
-    for (const blogger of bloggers) {
-      const exists = existingBloggers.find(
-        b => b.nickname === blogger.nickname && b.profileUrl === blogger.profileUrl
-      );
-
-      if (exists) {
-        console.log('跳过重复博主：', blogger.nickname);
-        continue;
+        // 清除相关缓存
+        cacheManager.clear(`kol_bloggers:project_id:${projectId}`);
       }
 
-      const newBlogger = {
-        id: `${Date.now()}_${idCounter++}_${Math.random().toString(36).substr(2, 9)}`,
-        projectId,
-        nickname: blogger.nickname || '',
-        followers: blogger.followers || 0,
-        profileUrl: blogger.profileUrl || '',
-        status: '待审核',
-        publishTime: null,
-        xhsLink: '',
-        dianpingLink: '',
-        douyinLink: '',
-        notes: '',
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-
-      console.log('创建新博主对象：', newBlogger);
-      newBloggers.push(newBlogger);
-    }
-
-    console.log('即将保存的新博主列表：', newBloggers);
-    db.bloggers.push(...newBloggers);
-    saveLocalDB(db);
-    return newBloggers;
+      return newBloggers;
+    }, '批量导入博主失败');
   },
 
   // 更新博主信息
   async update(bloggerId, updates) {
-    if (isElectron()) {
-      const updateFields = [];
-      const updateValues = [];
+    return await withErrorHandling(async () => {
+      // 先获取博主信息以获得 projectId
+      const { data: existing } = await supabase
+        .from('kol_bloggers')
+        .select('project_id')
+        .eq('id', bloggerId)
+        .single();
 
-      if (updates.status !== undefined) {
-        updateFields.push('status = ?');
-        updateValues.push(updates.status);
-      }
-      if (updates.publishTime !== undefined) {
-        updateFields.push('publish_time = ?');
-        updateValues.push(updates.publishTime);
-      }
-      if (updates.xhsLink !== undefined) {
-        updateFields.push('xhs_link = ?');
-        updateValues.push(updates.xhsLink);
-      }
-      if (updates.dianpingLink !== undefined) {
-        updateFields.push('dianping_link = ?');
-        updateValues.push(updates.dianpingLink);
-      }
-      if (updates.douyinLink !== undefined) {
-        updateFields.push('douyin_link = ?');
-        updateValues.push(updates.douyinLink);
-      }
-      if (updates.notes !== undefined) {
-        updateFields.push('notes = ?');
-        updateValues.push(updates.notes);
-      }
-      // 小红书互动数据
-      if (updates.xhsLikes !== undefined) {
-        updateFields.push('xhs_likes = ?');
-        updateValues.push(updates.xhsLikes);
-      }
-      if (updates.xhsFavorites !== undefined) {
-        updateFields.push('xhs_favorites = ?');
-        updateValues.push(updates.xhsFavorites);
-      }
-      if (updates.xhsComments !== undefined) {
-        updateFields.push('xhs_comments = ?');
-        updateValues.push(updates.xhsComments);
-      }
-      if (updates.xhsShares !== undefined) {
-        updateFields.push('xhs_shares = ?');
-        updateValues.push(updates.xhsShares);
-      }
-      // 大众点评互动数据
-      if (updates.dianpingLikes !== undefined) {
-        updateFields.push('dianping_likes = ?');
-        updateValues.push(updates.dianpingLikes);
-      }
-      if (updates.dianpingFavorites !== undefined) {
-        updateFields.push('dianping_favorites = ?');
-        updateValues.push(updates.dianpingFavorites);
-      }
-      if (updates.dianpingComments !== undefined) {
-        updateFields.push('dianping_comments = ?');
-        updateValues.push(updates.dianpingComments);
-      }
-      if (updates.dianpingShares !== undefined) {
-        updateFields.push('dianping_shares = ?');
-        updateValues.push(updates.dianpingShares);
-      }
-      // 抖音互动数据
-      if (updates.douyinLikes !== undefined) {
-        updateFields.push('douyin_likes = ?');
-        updateValues.push(updates.douyinLikes);
-      }
-      if (updates.douyinFavorites !== undefined) {
-        updateFields.push('douyin_favorites = ?');
-        updateValues.push(updates.douyinFavorites);
-      }
-      if (updates.douyinComments !== undefined) {
-        updateFields.push('douyin_comments = ?');
-        updateValues.push(updates.douyinComments);
-      }
-      if (updates.douyinShares !== undefined) {
-        updateFields.push('douyin_shares = ?');
-        updateValues.push(updates.douyinShares);
+      if (!existing) {
+        throw new Error('博主不存在');
       }
 
-      updateFields.push('updated_at = ?');
-      updateValues.push(Date.now());
-      updateValues.push(bloggerId);
-
-      await window.electron.db.run(
-        `UPDATE bloggers SET ${updateFields.join(', ')} WHERE id = ?`,
-        updateValues
-      );
-
-      const result = await window.electron.db.query(
-        'SELECT * FROM bloggers WHERE id = ?',
-        [bloggerId]
-      );
-
-      if (result[0]) {
-        const b = result[0];
-        return {
-          id: String(b.id),
-          projectId: b.project_id,
-          nickname: b.nickname,
-          followers: b.followers,
-          profileUrl: b.profile_url,
-          status: b.status,
-          publishTime: b.publish_time,
-          xhsLink: b.xhs_link,
-          dianpingLink: b.dianping_link,
-          douyinLink: b.douyin_link,
-          notes: b.notes || '',
-          // 小红书互动数据
-          xhsLikes: b.xhs_likes,
-          xhsFavorites: b.xhs_favorites,
-          xhsComments: b.xhs_comments,
-          xhsShares: b.xhs_shares,
-          // 大众点评互动数据
-          dianpingLikes: b.dianping_likes,
-          dianpingFavorites: b.dianping_favorites,
-          dianpingComments: b.dianping_comments,
-          dianpingShares: b.dianping_shares,
-          // 抖音互动数据
-          douyinLikes: b.douyin_likes,
-          douyinFavorites: b.douyin_favorites,
-          douyinComments: b.douyin_comments,
-          douyinShares: b.douyin_shares,
-          createdAt: b.created_at,
-          updatedAt: b.updated_at,
-        };
-      }
-      return null;
-    }
-
-    const db = getLocalDB();
-    const index = db.bloggers.findIndex(b => b.id === bloggerId);
-    if (index !== -1) {
-      db.bloggers[index] = {
-        ...db.bloggers[index],
+      // 添加更新时间
+      const updateData = {
         ...updates,
-        updatedAt: Date.now(),
+        updated_at: Date.now()
       };
-      saveLocalDB(db);
-      return db.bloggers[index];
-    }
-    return null;
+
+      const { data } = await supabase
+        .from('kol_bloggers')
+        .update(transformToSupabase(updateData, 'kol_bloggers'))
+        .eq('id', bloggerId)
+        .select()
+        .single();
+
+      const transformed = transformFromSupabase(data, 'kol_bloggers');
+
+      // 清除相关缓存
+      cacheManager.clear(`kol_bloggers:project_id:${existing.project_id}`);
+
+      return transformed;
+    }, '更新博主信息失败');
   },
 
   // 批量更新博主状态
   async updateStatus(bloggerIds, status) {
-    if (isElectron()) {
-      const placeholders = bloggerIds.map(() => '?').join(',');
-      await window.electron.db.run(
-        `UPDATE bloggers SET status = ?, updated_at = ? WHERE id IN (${placeholders})`,
-        [status, Date.now(), ...bloggerIds]
-      );
-      return;
-    }
+    return await withErrorHandling(async () => {
+      // 先获取所有博主的项目ID
+      const { data: bloggers } = await supabase
+        .from('kol_bloggers')
+        .select('project_id')
+        .in('id', bloggerIds);
 
-    const db = getLocalDB();
-    bloggerIds.forEach(id => {
-      const index = db.bloggers.findIndex(b => b.id === id);
-      if (index !== -1) {
-        db.bloggers[index].status = status;
-        db.bloggers[index].updatedAt = Date.now();
-      }
-    });
-    saveLocalDB(db);
+      await supabase
+        .from('kol_bloggers')
+        .update({
+          status: status,
+          updated_at: Date.now()
+        })
+        .in('id', bloggerIds);
+
+      // 清除相关缓存
+      const projectIds = [...new Set(bloggers?.map(b => b.project_id) || [])];
+      projectIds.forEach(projectId => {
+        cacheManager.clear(`kol_bloggers:project_id:${projectId}`);
+      });
+    }, '批量更新博主状态失败');
   },
 
   // 根据昵称查找博主
@@ -748,14 +573,26 @@ export const bloggerDB = {
 
   // 删除博主
   async delete(bloggerId) {
-    if (isElectron()) {
-      await window.electron.db.run('DELETE FROM bloggers WHERE id = ?', [bloggerId]);
-      return;
-    }
+    return await withErrorHandling(async () => {
+      // 先获取博主信息以获得 projectId
+      const { data: existing } = await supabase
+        .from('kol_bloggers')
+        .select('project_id')
+        .eq('id', bloggerId)
+        .single();
 
-    const db = getLocalDB();
-    db.bloggers = db.bloggers.filter(b => b.id !== bloggerId);
-    saveLocalDB(db);
+      if (!existing) {
+        throw new Error('博主不存在');
+      }
+
+      await supabase
+        .from('kol_bloggers')
+        .delete()
+        .eq('id', bloggerId);
+
+      // 清除相关缓存
+      cacheManager.clear(`kol_bloggers:project_id:${existing.project_id}`);
+    }, '删除博主失败');
   },
 };
 
