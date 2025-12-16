@@ -11,10 +11,6 @@ import WebApp from './web.jsx'
 const isElectron = typeof window !== 'undefined' && window.electron;
 const AppComponent = isElectron ? App : WebApp;
 
-console.log('=== 环境检测 ===');
-console.log('isElectron:', isElectron);
-console.log('使用组件:', isElectron ? 'App (Electron)' : 'WebApp (Web)');
-
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ConfigProvider

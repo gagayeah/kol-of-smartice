@@ -14,9 +14,6 @@ export function parseExcelFile(file) {
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         const jsonData = XLSX.utils.sheet_to_json(firstSheet, { raw: false });
 
-        console.log('Excel原始数据：', jsonData);
-        console.log('第一行数据的所有键：', jsonData[0] ? Object.keys(jsonData[0]) : []);
-
         // 智能检测列名（处理编码问题和不同命名）
         const detectColumnName = (row, possibleNames) => {
           // 首先尝试直接匹配
@@ -46,9 +43,6 @@ export function parseExcelFile(file) {
         const keys = jsonData[0] ? Object.keys(jsonData[0]) : [];
         const hasEncodingIssue = keys.some(k => k.includes('\\x') || /[^\x00-\x7F\u4e00-\u9fa5]/.test(k));
 
-        console.log('是否检测到编码问题:', hasEncodingIssue);
-        console.log('列名:', keys);
-
         // 转换字段名（支持多种列名变体）
         const bloggers = jsonData.map((row, index) => {
           let nickname, followersValue, profileUrl;
@@ -77,8 +71,6 @@ export function parseExcelFile(file) {
               followersValue = val1;
               profileUrl = String(val2 || '').trim();
             }
-
-            console.log(`行${index + 1} [按位置]: 昵称=${nickname}, 粉丝=${followersValue}, 链接=${profileUrl}`);
           } else {
             // 正常的列名匹配
             nickname = String(
@@ -116,16 +108,6 @@ export function parseExcelFile(file) {
           }
 
           const followers = parseInt(followersValue) || 0;
-
-          // 调试输出
-          console.log(`第${index + 1}行解析结果：`, {
-            原始数据: row,
-            解析后: {
-              昵称: nickname,
-              粉丝数: followers,
-              主页链接: profileUrl
-            }
-          });
 
           // 小红书互动数据
           const xhsLikes = parseInt(row['小红书点赞'] || row['xhs_likes'] || 0) || null;

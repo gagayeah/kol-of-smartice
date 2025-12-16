@@ -38,10 +38,8 @@ export default function ProjectGroupSelector({ groups, currentGroup, onGroupChan
   // 打开重命名对话框
   const openRenameModal = () => {
     if (!currentGroup) {
-      console.error('当前项目集不存在');
       return;
     }
-    console.log('打开项目集重命名弹窗，当前项目集:', currentGroup);
     setRenameValue(currentGroup.name);
     setIsRenameModalOpen(true);
   };
@@ -53,7 +51,6 @@ export default function ProjectGroupSelector({ groups, currentGroup, onGroupChan
       return;
     }
 
-    console.log('重命名项目集:', currentGroup.id, '新名称:', renameValue.trim());
     await projectGroupDB.rename(currentGroup.id, renameValue.trim());
     message.success('项目集重命名成功！');
     setIsRenameModalOpen(false);

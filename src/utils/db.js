@@ -100,14 +100,7 @@ export const projectGroupDB = {
   async getCurrent() {
     const groups = await this.getAll();
     const currentId = getCurrentGroupId();
-
-    // 添加调试日志
-    console.log('getCurrent - currentId from localStorage:', currentId);
-    console.log('getCurrent - available groups:', groups.map(g => ({ id: g.id, name: g.name })));
-
     const currentGroup = groups.find(g => g.id === currentId) || groups[0];
-    console.log('getCurrent - returning group:', currentGroup);
-
     return currentGroup;
   },
 
@@ -409,8 +402,6 @@ export const bloggerDB = {
 
   // 批量导入博主
   async importBatch(projectId, bloggers) {
-    console.log('importBatch 收到的数据：', bloggers);
-
     return await withErrorHandling(async () => {
       const existingBloggers = await this.getByProject(projectId);
       const newBloggers = [];
@@ -423,7 +414,6 @@ export const bloggerDB = {
         );
 
         if (exists) {
-          console.log('跳过重复博主：', blogger.nickname);
           continue;
         }
 
@@ -475,8 +465,6 @@ export const bloggerDB = {
           .from('kol_bloggers')
           .insert(insertData)
           .select();
-
-        console.log('成功导入的博主列表：', newBloggers);
 
         // 清除相关缓存
         cacheManager.clear(`kol_bloggers:project_id:${projectId}`);
@@ -559,14 +547,8 @@ export const bloggerDB = {
     const trimmedNickname = nickname.trim();
     const trimMatch = bloggers.find(b => b.nickname.trim() === trimmedNickname);
     if (trimMatch) {
-      console.log(`模糊匹配成功：'${nickname}' -> '${trimMatch.nickname}'`);
       return trimMatch;
     }
-
-    // 如果还是失败，输出调试信息
-    console.log(`未找到博主：'${nickname}'`);
-    console.log('当前项目ID:', projectId);
-    console.log('当前项目所有博主:', bloggers.map(b => `'${b.nickname}'`));
 
     return null;
   },

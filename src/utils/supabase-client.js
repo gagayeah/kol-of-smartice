@@ -32,12 +32,10 @@ let isOnline = navigator.onLine;
 // 监听网络状态变化
 window.addEventListener('online', () => {
   isOnline = true;
-  console.log('网络连接已恢复');
 });
 
 window.addEventListener('offline', () => {
   isOnline = false;
-  console.log('网络连接已断开');
 });
 
 // 缓存管理
@@ -193,7 +191,6 @@ class RealtimeManager {
           filter: filter
         },
         (payload) => {
-          console.log(`实时更新 ${table}:`, payload);
           callback(payload);
         }
       )

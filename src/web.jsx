@@ -30,12 +30,6 @@ function WebApp() {
   const [shareMode, setShareMode] = useState('project'); // 'project' or 'group'
   const [shareData, setShareData] = useState(null);
 
-  // Web 环境适配
-  useEffect(() => {
-    console.log('=== Web环境启动 ===');
-    console.log('使用浏览器本地存储和 Supabase');
-  }, []);
-
   // 加载数据
   const loadData = async () => {
     try {
@@ -89,51 +83,31 @@ function WebApp() {
 
   // 初始化
   useEffect(() => {
-    console.log('=== Web App useEffect 开始执行 ===');
-
     const init = async () => {
       try {
-        console.log('1. 开始初始化...');
-
         // 检查并创建默认数据（如果需要）
         const allGroups = await projectGroupDB.getAll();
-        console.log('2. 获取到的项目集数量:', allGroups.length);
-
         let currentGrp = null;
 
         if (allGroups.length === 0) {
           // 没有项目集，创建默认项目集和项目
-          console.log('3. 没有项目集，开始创建默认项目集和项目');
           const defaultGroup = await projectGroupDB.create('默认项目集');
-          console.log('4. 默认项目集已创建:', defaultGroup);
-
           const defaultProject = await projectDB.create('我的第一个项目', defaultGroup.id);
-          console.log('5. 默认项目已创建:', defaultProject);
-
           currentGrp = defaultGroup;
         } else {
-          console.log('3. 已有项目集，检查是否需要创建项目');
           // 有项目集，检查当前项目集下是否有项目
           currentGrp = await projectGroupDB.getCurrent();
-          console.log('4. 当前项目集:', currentGrp);
-
           if (currentGrp) {
             const groupProjects = await projectDB.getByGroup(currentGrp.id);
-            console.log('5. 当前项目集下的项目数:', groupProjects.length);
-
             if (groupProjects.length === 0) {
               // 当前项目集下没有项目，创建默认项目
-              console.log('6. 当前项目集下无项目，创建默认项目');
               const defaultProject = await projectDB.create('我的第一个项目', currentGrp.id);
-              console.log('7. 默认项目已创建:', defaultProject);
             }
           }
         }
 
         // 加载所有数据
-        console.log('最后: 开始加载所有数据...');
         await loadData();
-        console.log('=== 初始化完成 ===');
       } catch (error) {
         console.error('初始化过程出错:', error);
         message.error('初始化失败，请刷新页面重试');

@@ -271,7 +271,7 @@ export async function autoSyncProjectIfShared(projectId) {
     }
 
     if (syncCount > 0) {
-      console.log(`✅ 已同步 ${syncCount} 个分享到云端`);
+      // 同步完成
     }
     return { success: true, synced: true, count: syncCount };
   }, '自动同步项目失败');

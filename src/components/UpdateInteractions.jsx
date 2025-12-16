@@ -19,8 +19,6 @@ function UpdateInteractions({ visible, onClose, bloggers = [], onComplete }) {
 
     // 监听爬虫进度
     window.electron.crawler.onProgress((progressData) => {
-      console.log('[更新进度]', progressData);
-
       if (progressData.status === 'processing') {
         setProgress({
           current: progressData.current,
@@ -72,12 +70,6 @@ function UpdateInteractions({ visible, onClose, bloggers = [], onComplete }) {
           'window.electron存在: ' + (typeof window !== 'undefined' && !!window.electron) + '\n' +
           '博主详情: ' + JSON.stringify(publishedBloggers.map(b => b.nickname)));
 
-    console.log('[调试] handleStartUpdate 被调用');
-    console.log('[调试] isElectron:', electronCheck);
-    console.log('[调试] window.electron:', window.electron);
-    console.log('[调试] publishedBloggers.length:', publishedBloggers.length);
-    console.log('[调试] publishedBloggers:', publishedBloggers);
-
     if (!electronCheck) {
       alert('检测失败: 不在Electron环境\nwindow.electron = ' + window.electron);
       message.error('互动数据更新功能仅在桌面应用中可用');
@@ -98,17 +90,9 @@ function UpdateInteractions({ visible, onClose, bloggers = [], onComplete }) {
     setCurrentBlogger('');
 
     try {
-      console.log('[前端] 开始更新互动数据，博主数量:', publishedBloggers.length);
-      console.log('[前端] 博主详情:', publishedBloggers.map(b => ({
-        id: b.id,
-        nickname: b.nickname,
-        xhsLink: b.xhsLink
-      })));
-
       alert('准备调用爬虫API');
       const response = await window.electron.crawler.crawlBloggers(publishedBloggers);
       alert('爬虫API返回了: ' + JSON.stringify(response));
-      console.log('[前端] 爬虫响应:', response);
 
       if (!response.success) {
         throw new Error(response.error || '更新失败');
@@ -236,7 +220,6 @@ function UpdateInteractions({ visible, onClose, bloggers = [], onComplete }) {
           <Button
             size="small"
             onClick={() => {
-              console.log('测试按钮被点击');
               alert(`可更新博主数: ${publishedBloggers.length}`);
             }}
           >
