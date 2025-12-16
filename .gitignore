@@ -59,6 +59,9 @@ Thumbs.db
 coverage/
 *.lcov
 
+# Data exports (local backups)
+data-exports/
+
 # Optional eslint cache
 .eslintcache
 
