@@ -10,6 +10,8 @@
     "build": "vite build && electron-builder",
     "build:mac": "vite build && electron-builder --mac",
     "build:web": "vite build --config vite.web.config.js",
+    "build:gh-pages": "./node_modules/.bin/vite build --config vite.gh-pages.config.js",
+    "deploy:gh-pages": "npm run build:gh-pages && ./node_modules/.bin/gh-pages -d dist-web",
     "lint": "eslint .",
     "preview": "vite preview"
   },
