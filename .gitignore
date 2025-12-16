@@ -67,3 +67,7 @@ coverage/
 
 # Yarn Integrity file
 .yarn-integrity
+dist-web/
+node_modules/
+*.log
+.DS_Store
