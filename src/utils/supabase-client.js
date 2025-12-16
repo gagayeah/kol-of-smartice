@@ -125,6 +125,7 @@ export function handleNetworkError(error) {
 }
 
 // 数据库操作包装器
+// v2: 支持两种回调返回格式 - Supabase 原始响应 { data, error } 或直接返回数据
 export async function withErrorHandling(operation, errorMessage = '数据库操作失败') {
   try {
     if (!isOnline) {
@@ -133,15 +134,21 @@ export async function withErrorHandling(operation, errorMessage = '数据库操�
 
     const result = await operation();
 
-    // 检查 Supabase 返回的错误
-    if (result.error) {
+    // 检查是否是 Supabase 响应格式（包含 error 属性）
+    if (result && typeof result === 'object' && 'error' in result && result.error) {
       throw new DatabaseError(result.error.message, 'SUPABASE_ERROR', {
         details: result.error.details,
         hint: result.error.hint
       });
     }
 
-    return result.data;
+    // 如果结果包含 data 属性（Supabase 响应格式），返回 data
+    // 否则直接返回结果（回调已处理过的数据）
+    if (result && typeof result === 'object' && 'data' in result) {
+      return result.data;
+    }
+
+    return result;
   } catch (error) {
     if (error instanceof DatabaseError) {
       throw error;
@@ -152,7 +159,6 @@ export async function withErrorHandling(operation, errorMessage = '数据库操�
       handleNetworkError(error);
     }
 
-    console.error(`${errorMessage}:`, error);
     throw new DatabaseError(`${errorMessage}: ${error.message}`, 'UNKNOWN_ERROR', { originalError: error });
   }
 }

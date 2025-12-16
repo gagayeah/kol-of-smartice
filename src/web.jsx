@@ -65,8 +65,8 @@ function WebApp() {
           const projectBloggers = await bloggerDB.getByProject(validCurrentProject.id);
           setBloggers(projectBloggers);
 
-          // 自动同步到云端（如果项目已分享）
-          autoSyncProjectIfShared(validCurrentProject.id);
+          // v1.3.0: 自动同步功能暂时禁用（kol_shares 表尚未创建）
+          // autoSyncProjectIfShared(validCurrentProject.id);
         } else {
           setBloggers([]);
         }
@@ -81,36 +81,15 @@ function WebApp() {
     }
   };
 
-  // 初始化
+  // 初始化 - v1.3.0 简化：数据来自 Supabase，无需创建默认数据
   useEffect(() => {
     const init = async () => {
       try {
-        // 检查并创建默认数据（如果需要）
-        const allGroups = await projectGroupDB.getAll();
-        let currentGrp = null;
-
-        if (allGroups.length === 0) {
-          // 没有项目集，创建默认项目集和项目
-          const defaultGroup = await projectGroupDB.create('默认项目集');
-          const defaultProject = await projectDB.create('我的第一个项目', defaultGroup.id);
-          currentGrp = defaultGroup;
-        } else {
-          // 有项目集，检查当前项目集下是否有项目
-          currentGrp = await projectGroupDB.getCurrent();
-          if (currentGrp) {
-            const groupProjects = await projectDB.getByGroup(currentGrp.id);
-            if (groupProjects.length === 0) {
-              // 当前项目集下没有项目，创建默认项目
-              const defaultProject = await projectDB.create('我的第一个项目', currentGrp.id);
-            }
-          }
-        }
-
-        // 加载所有数据
+        // 直接加载数据（品牌和门店来自 Supabase master 表）
         await loadData();
       } catch (error) {
         console.error('初始化过程出错:', error);
-        message.error('初始化失败，请刷新页面重试');
+        message.error('加载数据失败，请检查网络连接后刷新页面');
       }
     };
 
@@ -269,7 +248,7 @@ function WebApp() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <img src={logoImg} alt="Logo" style={{ width: 40, height: 40, objectFit: 'contain' }} />
             <h1 style={{ margin: 0, fontSize: 20, color: '#fff', fontWeight: 600 }}>
-              多项目博主管理系统 (Web版)
+              KOL 博主管理系统 (Web版)
             </h1>
           </div>
           {activeTab === 'projects' && currentProject && (
@@ -308,15 +287,7 @@ function WebApp() {
       </Header>
 
       <Content style={{ padding: '24px' }}>
-        {!window.electron && (
-          <Alert
-            message="Web 版本说明"
-            description="当前为 Web 版本，数据存储在浏览器本地。如需完整功能，请下载桌面版应用。"
-            type="info"
-            style={{ marginBottom: 16 }}
-            closable
-          />
-        )}
+        {/* v1.3.0: Web 和 Electron 现在都使用 Supabase 云端数据库，无需区分 */}
 
         {/* Tab导航 */}
         <Tabs
@@ -381,7 +352,7 @@ function WebApp() {
                 </Empty>
               )
             ) : (
-              <Empty description="请先创建项目" style={{ marginTop: 60 }} />
+              <Empty description="请先选择门店" style={{ marginTop: 60 }} />
             )}
 
             {/* 导入弹窗 - 使用新的ImportBlogger组件 */}
@@ -427,7 +398,7 @@ function WebApp() {
 
       <Footer style={{ textAlign: 'center', padding: '20px', background: 'transparent', borderTop: 'none' }}>
         <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 500 }}>
-          多项目博主管理系统 v1.2.0 (Web版) · Made with ❤️ by gaga
+          KOL 博主管理系统 v1.3.0 (Web版) · Made with ❤️ by gaga
         </div>
       </Footer>
     </Layout>
