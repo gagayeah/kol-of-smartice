@@ -1,8 +1,12 @@
+// v2: 添加性能日志用于调试慢请求
 import { createClient } from '@supabase/supabase-js';
 
 // Supabase 配置
 const SUPABASE_URL = 'https://wdpeoyugsxqnpwwtkqsl.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndkcGVveXVnc3hxbnB3d3RrcXNsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NDQxNDgwNzgsImV4cCI6MjA1OTcyNDA3OH0.9bUpuZCOZxDSH3KsIu6FwWZyAvnV5xPJGNpO3luxWOE';
+
+// 请求计数器用于追踪
+let requestCounter = 0;
 
 // 创建 Supabase 客户端
 export const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -125,14 +129,20 @@ export function handleNetworkError(error) {
 }
 
 // 数据库操作包装器
-// v2: 支持两种回调返回格式 - Supabase 原始响应 { data, error } 或直接返回数据
+// v3: 添加请求计时和性能日志
 export async function withErrorHandling(operation, errorMessage = '数据库操作失败') {
+  const reqId = ++requestCounter;
+  const startTime = performance.now();
+  console.log(`🚀 [SUPABASE] #${reqId} 请求开始: ${errorMessage.replace('失败', '')}`);
+
   try {
     if (!isOnline) {
       throw new DatabaseError('网络连接已断开，请检查网络设置', 'NETWORK_OFFLINE');
     }
 
     const result = await operation();
+    const duration = performance.now() - startTime;
+    console.log(`✅ [SUPABASE] #${reqId} 请求完成: ${duration.toFixed(2)}ms`);
 
     // 检查是否是 Supabase 响应格式（包含 error 属性）
     if (result && typeof result === 'object' && 'error' in result && result.error) {
@@ -150,6 +160,9 @@ export async function withErrorHandling(operation, errorMessage = '数据库操�
 
     return result;
   } catch (error) {
+    const duration = performance.now() - startTime;
+    console.log(`❌ [SUPABASE] #${reqId} 请求失败: ${duration.toFixed(2)}ms - ${error.message}`);
+
     if (error instanceof DatabaseError) {
       throw error;
     }

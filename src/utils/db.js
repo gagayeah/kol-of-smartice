@@ -1,7 +1,28 @@
 // 数据库工具 - Supabase 主数据源 + 本地 SQLite 备份
-// v4: 连接 Supabase master_brand 和 master_restaurant 表
-// 品牌和门店数据为只读（从 master 表获取），博主数据存储在 kol_bloggers
-// 本地 SQLite 仅作为离线备份
+// v6: 添加性能日志用于调试慢启动问题
+// 品牌和门店数据为只读，项目分类和博主数据可读写
+// 数据结构: 品牌 → 门店 → 项目分类 → 博主
+
+// 数据库请求性能日志
+const dbPerfLog = {
+  start(label) {
+    const startTime = performance.now();
+    console.log(`🔵 [DB] START: ${label}`);
+    return startTime;
+  },
+  end(label, startTime, fromCache = false) {
+    const duration = performance.now() - startTime;
+    const cacheStatus = fromCache ? '(缓存)' : '(网络)';
+    console.log(`🟢 [DB] END: ${label} - ${duration.toFixed(2)}ms ${cacheStatus}`);
+    return duration;
+  },
+  cacheHit(label) {
+    console.log(`💾 [DB] CACHE HIT: ${label}`);
+  },
+  cacheMiss(label) {
+    console.log(`🌐 [DB] CACHE MISS: ${label} - 需要网络请求`);
+  }
+};
 
 import {
   supabase,
@@ -14,9 +35,10 @@ import {
   DatabaseError
 } from './supabase-client.js';
 
-// 本地存储当前选中的品牌和门店ID
+// 本地存储当前选中的品牌、门店和项目分类ID
 const CURRENT_BRAND_KEY = 'current_brand_id';
 const CURRENT_RESTAURANT_KEY = 'current_restaurant_id';
+const CURRENT_CATEGORY_KEY = 'current_category_id';
 
 // 检测是否在 Electron 环境中（用于本地备份）
 const isElectron = () => typeof window !== 'undefined' && window.electron && window.electron.db;
@@ -58,6 +80,20 @@ function setCurrentRestaurantId(restaurantId) {
   }
 }
 
+// 获取当前项目分类ID
+function getCurrentCategoryId() {
+  return localStorage.getItem(CURRENT_CATEGORY_KEY);
+}
+
+// 设置当前项目分类ID
+function setCurrentCategoryId(categoryId) {
+  if (categoryId) {
+    localStorage.setItem(CURRENT_CATEGORY_KEY, categoryId);
+  } else {
+    localStorage.removeItem(CURRENT_CATEGORY_KEY);
+  }
+}
+
 // ============================================================
 // 数据转换函数
 // ============================================================
@@ -91,11 +127,44 @@ function transformRestaurant(row) {
   };
 }
 
+// 转换 kol_project_categories 到前端格式
+function transformCategory(row) {
+  return {
+    id: row.id,
+    restaurantId: row.restaurant_id,
+    name: row.name,
+    description: row.description,
+    startDate: row.start_date,
+    endDate: row.end_date,
+    status: row.status,
+    sortOrder: row.sort_order,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+// 转换项目分类到 Supabase 格式
+function transformCategoryToSupabase(data) {
+  return {
+    id: data.id || generateUUID(),
+    restaurant_id: data.restaurantId,
+    name: data.name || '',
+    description: data.description || '',
+    start_date: data.startDate || null,
+    end_date: data.endDate || null,
+    status: data.status || 'active',
+    sort_order: data.sortOrder || 0,
+    created_at: data.createdAt || new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  };
+}
+
 // 转换博主数据
 function transformBlogger(row) {
   return {
     id: String(row.id),
     projectId: row.project_id, // 关联门店ID
+    categoryId: row.category_id, // 关联项目分类ID
     nickname: row.nickname,
     followers: row.followers,
     profileUrl: row.profile_url,
@@ -139,6 +208,7 @@ function transformBloggerToSupabase(data) {
   return {
     id: data.id || generateUUID(),
     project_id: data.projectId,
+    category_id: data.categoryId || null,
     nickname: data.nickname || '',
     followers: data.followers || 0,
     profile_url: data.profileUrl || '',
@@ -179,10 +249,16 @@ function transformBloggerToSupabase(data) {
 export const projectGroupDB = {
   // 获取所有品牌
   async getAll() {
+    const startTime = dbPerfLog.start('projectGroupDB.getAll (master_brand)');
     const cacheKey = generateCacheKey('master_brand');
     const cached = cacheManager.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      dbPerfLog.cacheHit('master_brand');
+      dbPerfLog.end('projectGroupDB.getAll', startTime, true);
+      return cached;
+    }
 
+    dbPerfLog.cacheMiss('master_brand');
     return await withErrorHandling(async () => {
       const { data, error } = await supabase
         .from('master_brand')
@@ -194,22 +270,28 @@ export const projectGroupDB = {
 
       const transformed = (data || []).map(transformBrand);
       cacheManager.set(cacheKey, transformed);
+      dbPerfLog.end('projectGroupDB.getAll', startTime, false);
       return transformed;
     }, '获取品牌列表失败');
   },
 
   // 获取当前品牌
   async getCurrent() {
+    const startTime = dbPerfLog.start('projectGroupDB.getCurrent');
     const brands = await this.getAll();
     const currentId = getCurrentBrandId();
-    return brands.find(b => b.id === currentId) || brands[0] || null;
+    const result = brands.find(b => b.id === currentId) || brands[0] || null;
+    dbPerfLog.end('projectGroupDB.getCurrent', startTime, true);
+    return result;
   },
 
   // 切换品牌
   async switch(brandId) {
     setCurrentBrandId(brandId);
     setCurrentRestaurantId(null);
+    setCurrentCategoryId(null);
     cacheManager.delete(generateCacheKey('master_restaurant'));
+    cacheManager.delete(generateCacheKey('kol_project_categories'));
     cacheManager.delete(generateCacheKey('kol_bloggers'));
   },
 
@@ -236,10 +318,16 @@ export const projectGroupDB = {
 export const projectDB = {
   // 获取所有门店
   async getAll() {
+    const startTime = dbPerfLog.start('projectDB.getAll (master_restaurant)');
     const cacheKey = generateCacheKey('master_restaurant');
     const cached = cacheManager.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      dbPerfLog.cacheHit('master_restaurant');
+      dbPerfLog.end('projectDB.getAll', startTime, true);
+      return cached;
+    }
 
+    dbPerfLog.cacheMiss('master_restaurant');
     return await withErrorHandling(async () => {
       const { data, error } = await supabase
         .from('master_restaurant')
@@ -251,16 +339,23 @@ export const projectDB = {
 
       const transformed = (data || []).map(transformRestaurant);
       cacheManager.set(cacheKey, transformed);
+      dbPerfLog.end('projectDB.getAll', startTime, false);
       return transformed;
     }, '获取门店列表失败');
   },
 
   // 获取特定品牌的所有门店
   async getByGroup(brandId) {
+    const startTime = dbPerfLog.start(`projectDB.getByGroup (brand_id=${brandId})`);
     const cacheKey = generateCacheKey('master_restaurant', { brand_id: brandId });
     const cached = cacheManager.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      dbPerfLog.cacheHit(`master_restaurant brand_id=${brandId}`);
+      dbPerfLog.end('projectDB.getByGroup', startTime, true);
+      return cached;
+    }
 
+    dbPerfLog.cacheMiss(`master_restaurant brand_id=${brandId}`);
     return await withErrorHandling(async () => {
       const { data, error } = await supabase
         .from('master_restaurant')
@@ -273,6 +368,7 @@ export const projectDB = {
 
       const transformed = (data || []).map(transformRestaurant);
       cacheManager.set(cacheKey, transformed);
+      dbPerfLog.end('projectDB.getByGroup', startTime, false);
       return transformed;
     }, '获取门店列表失败');
   },
@@ -284,17 +380,26 @@ export const projectDB = {
 
   // 获取当前门店
   async getCurrent(currentBrandId = null) {
+    const startTime = dbPerfLog.start('projectDB.getCurrent');
     const currentId = getCurrentRestaurantId();
     const brandId = currentBrandId || getCurrentBrandId();
-    if (!brandId) return null;
+    if (!brandId) {
+      dbPerfLog.end('projectDB.getCurrent (no brandId)', startTime, true);
+      return null;
+    }
 
     const restaurants = await this.getByGroup(brandId);
-    return restaurants.find(r => r.id === currentId) || restaurants[0] || null;
+    const result = restaurants.find(r => r.id === currentId) || restaurants[0] || null;
+    dbPerfLog.end('projectDB.getCurrent', startTime, true);
+    return result;
   },
 
   // 切换门店
   async switch(restaurantId) {
     setCurrentRestaurantId(restaurantId);
+    setCurrentCategoryId(null);
+    cacheManager.delete(generateCacheKey('kol_project_categories'));
+    cacheManager.delete(generateCacheKey('kol_bloggers'));
   },
 
   // 创建门店 - 禁用（master 数据只读）
@@ -319,15 +424,198 @@ export const projectDB = {
 };
 
 // ============================================================
+// 项目分类管理（三级）- 使用 kol_project_categories 表（可读写）
+// ============================================================
+export const categoryDB = {
+  // 获取门店的所有项目分类
+  async getByRestaurant(restaurantId) {
+    const startTime = dbPerfLog.start(`categoryDB.getByRestaurant (restaurant_id=${restaurantId})`);
+    const cacheKey = generateCacheKey('kol_project_categories', { restaurant_id: restaurantId });
+    const cached = cacheManager.get(cacheKey);
+    if (cached) {
+      dbPerfLog.cacheHit(`kol_project_categories restaurant_id=${restaurantId}`);
+      dbPerfLog.end('categoryDB.getByRestaurant', startTime, true);
+      return cached;
+    }
+
+    dbPerfLog.cacheMiss(`kol_project_categories restaurant_id=${restaurantId}`);
+    return await withErrorHandling(async () => {
+      const { data, error } = await supabase
+        .from('kol_project_categories')
+        .select('*')
+        .eq('restaurant_id', restaurantId)
+        .order('sort_order', { ascending: true });
+
+      if (error) throw new Error(error.message);
+
+      const transformed = (data || []).map(transformCategory);
+      cacheManager.set(cacheKey, transformed);
+      dbPerfLog.end('categoryDB.getByRestaurant', startTime, false);
+      return transformed;
+    }, '获取项目分类列表失败');
+  },
+
+  // 获取当前项目分类
+  async getCurrent(currentRestaurantId = null) {
+    const startTime = dbPerfLog.start('categoryDB.getCurrent');
+    const currentId = getCurrentCategoryId();
+    const restaurantId = currentRestaurantId || getCurrentRestaurantId();
+    if (!restaurantId) {
+      dbPerfLog.end('categoryDB.getCurrent (no restaurantId)', startTime, true);
+      return null;
+    }
+
+    const categories = await this.getByRestaurant(restaurantId);
+    const result = categories.find(c => c.id === currentId) || categories[0] || null;
+    dbPerfLog.end('categoryDB.getCurrent', startTime, true);
+    return result;
+  },
+
+  // 切换项目分类
+  async switch(categoryId) {
+    setCurrentCategoryId(categoryId);
+    cacheManager.delete(generateCacheKey('kol_bloggers'));
+  },
+
+  // 创建项目分类
+  async create(name, restaurantId, options = {}) {
+    return await withErrorHandling(async () => {
+      // 获取当前最大排序值
+      const { data: existing } = await supabase
+        .from('kol_project_categories')
+        .select('sort_order')
+        .eq('restaurant_id', restaurantId)
+        .order('sort_order', { ascending: false })
+        .limit(1);
+
+      const maxOrder = existing?.[0]?.sort_order || 0;
+
+      const categoryData = transformCategoryToSupabase({
+        restaurantId,
+        name,
+        description: options.description || '',
+        startDate: options.startDate || null,
+        endDate: options.endDate || null,
+        status: options.status || 'active',
+        sortOrder: maxOrder + 1
+      });
+
+      const { data, error } = await supabase
+        .from('kol_project_categories')
+        .insert([categoryData])
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      cacheManager.delete(generateCacheKey('kol_project_categories', { restaurant_id: restaurantId }));
+      return transformCategory(data);
+    }, '创建项目分类失败');
+  },
+
+  // 更新项目分类
+  async update(categoryId, updates) {
+    return await withErrorHandling(async () => {
+      const { data: existing } = await supabase
+        .from('kol_project_categories')
+        .select('restaurant_id')
+        .eq('id', categoryId)
+        .single();
+
+      if (!existing) throw new Error('项目分类不存在');
+
+      const updateData = {
+        updated_at: new Date().toISOString()
+      };
+
+      const fieldMap = {
+        name: 'name',
+        description: 'description',
+        startDate: 'start_date',
+        endDate: 'end_date',
+        status: 'status',
+        sortOrder: 'sort_order'
+      };
+
+      for (const [key, value] of Object.entries(updates)) {
+        if (fieldMap[key]) {
+          updateData[fieldMap[key]] = value;
+        }
+      }
+
+      const { data, error } = await supabase
+        .from('kol_project_categories')
+        .update(updateData)
+        .eq('id', categoryId)
+        .select()
+        .single();
+
+      if (error) throw new Error(error.message);
+
+      cacheManager.delete(generateCacheKey('kol_project_categories', { restaurant_id: existing.restaurant_id }));
+      return transformCategory(data);
+    }, '更新项目分类失败');
+  },
+
+  // 重命名项目分类
+  async rename(categoryId, newName) {
+    return await this.update(categoryId, { name: newName });
+  },
+
+  // 删除项目分类
+  async delete(categoryId) {
+    return await withErrorHandling(async () => {
+      const { data: existing } = await supabase
+        .from('kol_project_categories')
+        .select('restaurant_id')
+        .eq('id', categoryId)
+        .single();
+
+      if (!existing) throw new Error('项目分类不存在');
+
+      // 检查分类下是否有博主
+      const { count } = await supabase
+        .from('kol_bloggers')
+        .select('id', { count: 'exact', head: true })
+        .eq('category_id', categoryId);
+
+      if (count > 0) {
+        throw new Error(`该分类下还有 ${count} 个博主，请先移动或删除博主`);
+      }
+
+      const { error } = await supabase
+        .from('kol_project_categories')
+        .delete()
+        .eq('id', categoryId);
+
+      if (error) throw new Error(error.message);
+
+      cacheManager.delete(generateCacheKey('kol_project_categories', { restaurant_id: existing.restaurant_id }));
+
+      // 如果删除的是当前分类，清除选中状态
+      if (getCurrentCategoryId() === categoryId) {
+        setCurrentCategoryId(null);
+      }
+    }, '删除项目分类失败');
+  },
+};
+
+// ============================================================
 // 博主管理 - 使用 kol_bloggers 表
 // ============================================================
 export const bloggerDB = {
   // 获取门店的所有博主
   async getByProject(restaurantId) {
+    const startTime = dbPerfLog.start(`bloggerDB.getByProject (project_id=${restaurantId})`);
     const cacheKey = generateCacheKey('kol_bloggers', { project_id: restaurantId });
     const cached = cacheManager.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      dbPerfLog.cacheHit(`kol_bloggers project_id=${restaurantId}`);
+      dbPerfLog.end('bloggerDB.getByProject', startTime, true);
+      return cached;
+    }
 
+    dbPerfLog.cacheMiss(`kol_bloggers project_id=${restaurantId}`);
     return await withErrorHandling(async () => {
       const { data, error } = await supabase
         .from('kol_bloggers')
@@ -339,12 +627,42 @@ export const bloggerDB = {
 
       const transformed = (data || []).map(transformBlogger);
       cacheManager.set(cacheKey, transformed);
+      dbPerfLog.end('bloggerDB.getByProject', startTime, false);
+      return transformed;
+    }, '获取博主列表失败');
+  },
+
+  // 获取项目分类的所有博主
+  async getByCategory(categoryId) {
+    const startTime = dbPerfLog.start(`bloggerDB.getByCategory (category_id=${categoryId})`);
+    const cacheKey = generateCacheKey('kol_bloggers', { category_id: categoryId });
+    const cached = cacheManager.get(cacheKey);
+    if (cached) {
+      dbPerfLog.cacheHit(`kol_bloggers category_id=${categoryId}`);
+      dbPerfLog.end('bloggerDB.getByCategory', startTime, true);
+      return cached;
+    }
+
+    dbPerfLog.cacheMiss(`kol_bloggers category_id=${categoryId}`);
+    return await withErrorHandling(async () => {
+      const { data, error } = await supabase
+        .from('kol_bloggers')
+        .select('*')
+        .eq('category_id', categoryId)
+        .order('created_at', { ascending: false });
+
+      if (error) throw new Error(error.message);
+
+      const transformed = (data || []).map(transformBlogger);
+      cacheManager.set(cacheKey, transformed);
+      dbPerfLog.end('bloggerDB.getByCategory', startTime, false);
       return transformed;
     }, '获取博主列表失败');
   },
 
   // 批量导入博主
-  async importBatch(restaurantId, bloggers) {
+  // categoryId 参数可选，如果提供则将博主关联到指定分类
+  async importBatch(restaurantId, bloggers, categoryId = null) {
     const existingBloggers = await this.getByProject(restaurantId);
     const newBloggers = [];
     const insertData = [];
@@ -358,6 +676,7 @@ export const bloggerDB = {
 
       const bloggerData = {
         projectId: restaurantId,
+        categoryId: blogger.categoryId || categoryId,
         nickname: blogger.nickname || '',
         followers: blogger.followers || 0,
         profileUrl: blogger.profileUrl || '',
@@ -384,6 +703,9 @@ export const bloggerDB = {
       return await withErrorHandling(async () => {
         await supabase.from('kol_bloggers').insert(insertData);
         cacheManager.delete(generateCacheKey('kol_bloggers', { project_id: restaurantId }));
+        if (categoryId) {
+          cacheManager.delete(generateCacheKey('kol_bloggers', { category_id: categoryId }));
+        }
         return newBloggers;
       }, '批量导入博主失败');
     }
@@ -396,7 +718,7 @@ export const bloggerDB = {
     return await withErrorHandling(async () => {
       const { data: existing } = await supabase
         .from('kol_bloggers')
-        .select('project_id')
+        .select('project_id, category_id')
         .eq('id', bloggerId)
         .single();
 
@@ -408,6 +730,7 @@ export const bloggerDB = {
       };
 
       const fieldMap = {
+        categoryId: 'category_id',
         nickname: 'nickname',
         followers: 'followers',
         profileUrl: 'profile_url',
@@ -451,7 +774,15 @@ export const bloggerDB = {
         .select()
         .single();
 
+      // 清除相关缓存
       cacheManager.delete(generateCacheKey('kol_bloggers', { project_id: existing.project_id }));
+      if (existing.category_id) {
+        cacheManager.delete(generateCacheKey('kol_bloggers', { category_id: existing.category_id }));
+      }
+      // 如果分类改变了，也清除新分类的缓存
+      if (updates.categoryId && updates.categoryId !== existing.category_id) {
+        cacheManager.delete(generateCacheKey('kol_bloggers', { category_id: updates.categoryId }));
+      }
       return transformBlogger(data);
     }, '更新博主信息失败');
   },
@@ -498,7 +829,7 @@ export const bloggerDB = {
     return await withErrorHandling(async () => {
       const { data: existing } = await supabase
         .from('kol_bloggers')
-        .select('project_id')
+        .select('project_id, category_id')
         .eq('id', bloggerId)
         .single();
 
@@ -506,7 +837,40 @@ export const bloggerDB = {
 
       await supabase.from('kol_bloggers').delete().eq('id', bloggerId);
       cacheManager.delete(generateCacheKey('kol_bloggers', { project_id: existing.project_id }));
+      if (existing.category_id) {
+        cacheManager.delete(generateCacheKey('kol_bloggers', { category_id: existing.category_id }));
+      }
     }, '删除博主失败');
+  },
+
+  // 批量移动博主到新分类
+  async moveToCategory(bloggerIds, newCategoryId) {
+    return await withErrorHandling(async () => {
+      // 获取受影响的博主以便清除缓存
+      const { data: bloggers } = await supabase
+        .from('kol_bloggers')
+        .select('project_id, category_id')
+        .in('id', bloggerIds);
+
+      await supabase
+        .from('kol_bloggers')
+        .update({ category_id: newCategoryId, updated_at: new Date().toISOString() })
+        .in('id', bloggerIds);
+
+      // 清除相关缓存
+      const projectIds = [...new Set(bloggers?.map(b => b.project_id) || [])];
+      const categoryIds = [...new Set(bloggers?.map(b => b.category_id).filter(Boolean) || [])];
+
+      projectIds.forEach(projectId => {
+        cacheManager.delete(generateCacheKey('kol_bloggers', { project_id: projectId }));
+      });
+      categoryIds.forEach(categoryId => {
+        cacheManager.delete(generateCacheKey('kol_bloggers', { category_id: categoryId }));
+      });
+      if (newCategoryId) {
+        cacheManager.delete(generateCacheKey('kol_bloggers', { category_id: newCategoryId }));
+      }
+    }, '批量移动博主失败');
   },
 };
 

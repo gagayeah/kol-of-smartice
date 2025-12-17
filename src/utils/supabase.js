@@ -183,112 +183,15 @@ export async function deleteSharedProject(shareId) {
 
 /**
  * 自动同步项目数据到云端（如果项目已分享）
- * v1.3.0 - 添加对 kol_shares 表不存在的容错处理
- * @param {string} projectId - 项目ID
+ * v1.4.0 - 禁用自动同步功能，避免 kol_shares 表查询错误
+ * 分享功能需要重新设计以适配新的数据结构
+ * @param {string} projectId - 项目ID（门店ID）
  */
 export async function autoSyncProjectIfShared(projectId) {
-  try {
-    // 导入新的数据层 API
-    const { projectDB, bloggerDB } = await import('./db.js');
-
-    // 获取项目信息
-    const projects = await projectDB.getAll();
-    const project = projects.find(p => p.id === projectId);
-
-    if (!project) {
-      // 项目不存在，静默返回
-      return { success: true, synced: false };
-    }
-
-    const groupId = project.groupId;
-
-    // 查询该项目是否已分享（单个项目模式）
-    // 注意：kol_shares 表可能不存在，需要处理 404 错误
-    const { data: projectShares, error: projectError } = await supabase
-      .from('kol_shares')
-      .select('share_id')
-      .eq('project_id', projectId);
-
-    // 如果表不存在（404）或其他错误，静默跳过同步功能
-    if (projectError) {
-      // kol_shares 表不存在或查询失败，跳过同步
-      return { success: true, synced: false, reason: 'share_table_not_available' };
-    }
-
-    // 查询该项目所属的项目集是否已分享（项目集模式）
-    const { data: groupShares, error: groupError } = await supabase
-      .from('kol_shares')
-      .select('share_id')
-      .eq('project_id', groupId);
-
-    if (groupError) {
-      return { success: true, synced: false, reason: 'share_table_not_available' };
-    }
-
-    if (!projectShares?.length && !groupShares?.length) {
-      // 项目和项目集都未分享，无需同步
-      return { success: true, synced: false };
-    }
-
-    let syncCount = 0;
-
-    // 同步单个项目的分享
-    if (projectShares?.length > 0) {
-      const bloggers = await bloggerDB.getByProject(projectId);
-
-      for (const share of projectShares) {
-        const result = await updateSharedProject(share.share_id, bloggers);
-        if (result.success) {
-          syncCount++;
-        }
-      }
-    }
-
-    // 同步项目集的分享
-    if (groupShares?.length > 0) {
-      // 获取项目集下的所有项目
-      const allProjects = await projectDB.getByGroup(groupId);
-
-      // 获取所有博主数据（项目集模式）
-      const allBloggers = [];
-      const projectsData = [];
-
-      for (const proj of allProjects) {
-        const projectBloggers = await bloggerDB.getByProject(proj.id);
-
-        allBloggers.push(...projectBloggers);
-
-        projectsData.push({
-          id: proj.id,
-          name: proj.name,
-          bloggers: projectBloggers
-        });
-      }
-
-      // 更新项目集的分享
-      for (const share of groupShares) {
-        const { data, error } = await supabase
-          .from('shared_projects')
-          .update({
-            bloggers: allBloggers,
-            projects: projectsData,
-            updated_at: new Date().toISOString()
-          })
-          .eq('share_id', share.share_id)
-          .select();
-
-        if (!error) {
-          syncCount++;
-        }
-      }
-    }
-
-    return { success: true, synced: true, count: syncCount };
-  } catch (error) {
-    // 任何错误都静默处理，不影响主功能
-    console.warn('自动同步跳过:', error.message);
-    return { success: true, synced: false, reason: 'error' };
-  }
+  // 暂时禁用自动同步功能
+  // 原因：kol_shares.project_id 是 UUID 类型，但之前的代码试图用 brand ID (integer) 查询
+  // 需要重新设计分享功能以适配新的 品牌 -> 门店 -> 分类 -> 博主 数据结构
+  return { success: true, synced: false, reason: 'feature_disabled' };
 }
 
 function generateShareId() {

@@ -1,3 +1,6 @@
+// v1.1.0 - Added categoryId prop for component consistency
+// Note: This component searches by projectId, not categoryId, as it updates existing bloggers
+
 import { useState } from 'react';
 import { Modal, Input, Button, Space, message, Alert, List } from 'antd';
 import { parseReceipt } from '../utils/parser';
@@ -6,7 +9,7 @@ import { getDateOnlyTimestamp } from '../utils/dateHelper';
 
 const { TextArea } = Input;
 
-export default function ReceiptParser({ projectId, visible, onClose, onSuccess }) {
+export default function ReceiptParser({ projectId, categoryId, visible, onClose, onSuccess }) {
   const [receiptText, setReceiptText] = useState('');
   const [parseResult, setParseResult] = useState(null);
   const [processing, setProcessing] = useState(false);

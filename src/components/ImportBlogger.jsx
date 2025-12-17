@@ -1,3 +1,5 @@
+// v1.1.0 - Added categoryId support for importing bloggers to specific category
+
 import { useState } from 'react';
 import { Modal, Upload, message } from 'antd';
 import { InboxOutlined } from '@ant-design/icons';
@@ -6,7 +8,7 @@ import { bloggerDB } from '../utils/db';
 
 const { Dragger } = Upload;
 
-export default function ImportBlogger({ projectId, visible, onClose, onSuccess }) {
+export default function ImportBlogger({ projectId, categoryId, visible, onClose, onSuccess }) {
   const [uploading, setUploading] = useState(false);
 
   // Excel导入
@@ -54,8 +56,8 @@ export default function ImportBlogger({ projectId, visible, onClose, onSuccess }
         message.destroy('upload');
         message.loading({ content: `正在导入 ${validBloggers.length} 个博主...`, key: 'import', duration: 0 });
 
-        // 导入博主到项目
-        const imported = await bloggerDB.importBatch(projectId, validBloggers);
+        // 导入博主到项目分类
+        const imported = await bloggerDB.importBatch(projectId, validBloggers, categoryId);
 
         message.destroy('import');
         message.success(`成功导入 ${imported.length} 个博主`);
