@@ -183,10 +183,11 @@ export async function deleteSharedProject(shareId) {
 
 /**
  * 自动同步项目数据到云端（如果项目已分享）
+ * v1.3.0 - 添加对 kol_shares 表不存在的容错处理
  * @param {string} projectId - 项目ID
  */
 export async function autoSyncProjectIfShared(projectId) {
-  return await withErrorHandling(async () => {
+  try {
     // 导入新的数据层 API
     const { projectDB, bloggerDB } = await import('./db.js');
 
@@ -195,22 +196,34 @@ export async function autoSyncProjectIfShared(projectId) {
     const project = projects.find(p => p.id === projectId);
 
     if (!project) {
-      throw new Error('项目不存在');
+      // 项目不存在，静默返回
+      return { success: true, synced: false };
     }
 
     const groupId = project.groupId;
 
     // 查询该项目是否已分享（单个项目模式）
-    const { data: projectShares } = await supabase
+    // 注意：kol_shares 表可能不存在，需要处理 404 错误
+    const { data: projectShares, error: projectError } = await supabase
       .from('kol_shares')
       .select('share_id')
       .eq('project_id', projectId);
 
+    // 如果表不存在（404）或其他错误，静默跳过同步功能
+    if (projectError) {
+      // kol_shares 表不存在或查询失败，跳过同步
+      return { success: true, synced: false, reason: 'share_table_not_available' };
+    }
+
     // 查询该项目所属的项目集是否已分享（项目集模式）
-    const { data: groupShares } = await supabase
+    const { data: groupShares, error: groupError } = await supabase
       .from('kol_shares')
       .select('share_id')
       .eq('project_id', groupId);
+
+    if (groupError) {
+      return { success: true, synced: false, reason: 'share_table_not_available' };
+    }
 
     if (!projectShares?.length && !groupShares?.length) {
       // 项目和项目集都未分享，无需同步
@@ -270,11 +283,12 @@ export async function autoSyncProjectIfShared(projectId) {
       }
     }
 
-    if (syncCount > 0) {
-      console.log(`✅ 已同步 ${syncCount} 个分享到云端`);
-    }
     return { success: true, synced: true, count: syncCount };
-  }, '自动同步项目失败');
+  } catch (error) {
+    // 任何错误都静默处理，不影响主功能
+    console.warn('自动同步跳过:', error.message);
+    return { success: true, synced: false, reason: 'error' };
+  }
 }
 
 function generateShareId() {
