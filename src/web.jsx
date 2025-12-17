@@ -1,14 +1,16 @@
+// v1.4.0 - Added CategorySelector for project categories (活动期管理)
 import { useState, useEffect } from 'react';
 import { Layout, Button, Space, Empty, message, Tabs, Alert } from 'antd';
 import { UploadOutlined, ThunderboltOutlined, DownloadOutlined, ShareAltOutlined, SyncOutlined, DatabaseOutlined, ProjectOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import ProjectGroupSelector from './components/ProjectGroupSelector';
 import ProjectManagerPlanA from './components/ProjectManagerPlanA';
+import CategorySelector from './components/CategorySelector';
 import BloggerList from './components/BloggerList';
 import ImportBlogger from './components/ImportBlogger';
 import ReceiptParser from './components/ReceiptParser';
 import UpdateInteractions from './components/UpdateInteractions';
 import ShareProjectModal from './components/ShareProjectModal';
-import { projectGroupDB, projectDB, bloggerDB } from './utils/db';
+import { projectGroupDB, projectDB, bloggerDB, categoryDB } from './utils/db';
 import { exportToExcel } from './utils/excel';
 import { autoSyncProjectIfShared } from './utils/supabase';
 import logoImg from '../public/logo.png';
@@ -22,6 +24,8 @@ function WebApp() {
   const [currentGroup, setCurrentGroup] = useState(null);
   const [projects, setProjects] = useState([]);
   const [currentProject, setCurrentProject] = useState(null);
+  const [categories, setCategories] = useState([]);
+  const [currentCategory, setCurrentCategory] = useState(null);
   const [bloggers, setBloggers] = useState([]);
   const [importVisible, setImportVisible] = useState(false);
   const [parserVisible, setParserVisible] = useState(false);
@@ -60,19 +64,43 @@ function WebApp() {
 
         setCurrentProject(validCurrentProject);
 
-        // 加载当前项目的博主
+        // 加载当前门店的分类和博主
         if (validCurrentProject) {
-          const projectBloggers = await bloggerDB.getByProject(validCurrentProject.id);
-          setBloggers(projectBloggers);
+          // 加载分类
+          const restaurantCategories = await categoryDB.getByRestaurant(validCurrentProject.id);
+          setCategories(restaurantCategories);
 
-          // v1.3.0: 自动同步功能暂时禁用（kol_shares 表尚未创建）
-          // autoSyncProjectIfShared(validCurrentProject.id);
+          // 获取当前分类
+          const currentCat = await categoryDB.getCurrent();
+          // 验证当前分类是否属于当前门店
+          const validCurrentCategory = restaurantCategories.find(c => c.id === currentCat?.id)
+            ? currentCat
+            : (restaurantCategories.length > 0 ? restaurantCategories[0] : null);
+
+          if (validCurrentCategory && validCurrentCategory.id !== currentCat?.id) {
+            await categoryDB.switch(validCurrentCategory.id);
+          }
+          setCurrentCategory(validCurrentCategory);
+
+          // 根据分类加载博主
+          if (validCurrentCategory) {
+            const categoryBloggers = await bloggerDB.getByCategory(validCurrentCategory.id);
+            setBloggers(categoryBloggers);
+          } else {
+            // 没有分类时加载门店全部博主
+            const projectBloggers = await bloggerDB.getByProject(validCurrentProject.id);
+            setBloggers(projectBloggers);
+          }
         } else {
+          setCategories([]);
+          setCurrentCategory(null);
           setBloggers([]);
         }
       } else {
         setProjects([]);
         setCurrentProject(null);
+        setCategories([]);
+        setCurrentCategory(null);
         setBloggers([]);
       }
     } catch (error) {
@@ -329,17 +357,28 @@ function WebApp() {
               />
             )}
 
+            {/* 项目分类选择器（三级）- 活动期管理 */}
+            {currentProject && (
+              <CategorySelector
+                categories={categories}
+                currentCategory={currentCategory}
+                currentRestaurant={currentProject}
+                onCategoryChange={loadData}
+              />
+            )}
+
             {currentProject ? (
               bloggers.length > 0 ? (
                 <BloggerList
                   projectId={currentProject.id}
+                  categoryId={currentCategory?.id}
                   bloggers={bloggers}
                   onUpdate={loadData}
                   onShareProject={handleShareProject}
                 />
               ) : (
                 <Empty
-                  description="暂无博主数据，请导入Excel"
+                  description={currentCategory ? `当前分类「${currentCategory.name}」暂无博主数据` : "暂无博主数据，请导入Excel"}
                   style={{ marginTop: 60 }}
                 >
                   <Button
@@ -359,6 +398,7 @@ function WebApp() {
             {currentProject && (
               <ImportBlogger
                 projectId={currentProject.id}
+                categoryId={currentCategory?.id}
                 visible={importVisible}
                 onClose={() => setImportVisible(false)}
                 onSuccess={loadData}
@@ -369,6 +409,7 @@ function WebApp() {
             {currentProject && (
               <ReceiptParser
                 projectId={currentProject.id}
+                categoryId={currentCategory?.id}
                 visible={parserVisible}
                 onClose={() => setParserVisible(false)}
                 onSuccess={loadData}
@@ -398,7 +439,7 @@ function WebApp() {
 
       <Footer style={{ textAlign: 'center', padding: '20px', background: 'transparent', borderTop: 'none' }}>
         <div style={{ color: '#94a3b8', fontSize: 13, fontWeight: 500 }}>
-          KOL 博主管理系统 v1.3.0 (Web版) · Made with ❤️ by gaga
+          KOL 博主管理系统 v1.4.0 (Web版) · Made with ❤️ by gaga
         </div>
       </Footer>
     </Layout>

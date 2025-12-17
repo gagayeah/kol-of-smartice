@@ -1,3 +1,4 @@
+// v1.4.0 - Added categoryId prop for category-aware blogger imports
 import { useState } from 'react';
 import { Table, Tag, Space, Button, Select, Input, Popconfirm, message, DatePicker, Modal, Form, InputNumber } from 'antd';
 import { DeleteOutlined, EditOutlined, UserAddOutlined, FileTextOutlined, SyncOutlined, CloudUploadOutlined } from '@ant-design/icons';
@@ -26,7 +27,7 @@ const formatNumber = (num) => {
   return num.toString();
 };
 
-export default function BloggerList({ projectId, bloggers, onUpdate, onShareProject }) {
+export default function BloggerList({ projectId, categoryId, bloggers, onUpdate, onShareProject }) {
   const [selectedRowKeys, setSelectedRowKeys] = useState([]);
   const [searchText, setSearchText] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -540,12 +541,12 @@ export default function BloggerList({ projectId, bloggers, onUpdate, onShareProj
     try {
       const values = await addForm.validateFields();
 
-      // 调用importBatch方法添加单个博主
+      // 调用importBatch方法添加单个博主，传入categoryId
       await bloggerDB.importBatch(projectId, [{
         nickname: values.nickname,
         followers: values.followers,
         profileUrl: values.profileUrl,
-      }]);
+      }], categoryId);
 
       message.success('博主添加成功！');
       addForm.resetFields();
